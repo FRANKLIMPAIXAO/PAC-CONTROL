@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# environment variables — NUNCA subir para o git
+.env
+.env.local
+.env.*.local
+
+# debug
+npm-debug.log*
+
+# vercel
+.vercel
+vercel.json
+
+# arquivos legados (substituídos)
+api/
+lib/supabase.js
+
+# OS
+.DS_Store
+Thumbs.db

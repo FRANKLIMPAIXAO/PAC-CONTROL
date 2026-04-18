@@ -1,0 +1,22 @@
+{
+  "periods": [
+    {
+      "id": "quinzena1",
+      "name": "Quinzena 1",
+      "description": "Fechamento contábil intenso",
+      "dayStart": 1,
+      "dayEnd": 15,
+      "focusTarget": 80,
+      "minProductiveHoursPerDay": 6
+    },
+    {
+      "id": "quinzena2",
+      "name": "Quinzena 2",
+      "description": "Período normal de operações",
+      "dayStart": 16,
+      "dayEnd": 31,
+      "focusTarget": 65,
+      "minProductiveHoursPerDay": 5
+    }
+  ]
+}
