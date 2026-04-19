@@ -25,6 +25,7 @@ import queue
 import signal
 import socket
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -318,8 +319,16 @@ class ScreenshotCapture:
         self.cfg = cfg
         self.system = platform.system().lower()
         self._warned = False
+        self._warned_skip = False
         self._mss = None
         self._image_mod = None
+        self._skip_apps = {
+            "finder",
+            "loginwindow",
+            "dock",
+            "control center",
+            "spotlight",
+        }
 
     def _lazy_import(self) -> bool:
         if self._mss and self._image_mod:
@@ -337,7 +346,12 @@ class ScreenshotCapture:
                 self._warned = True
             return False
 
-    def capture_base64(self) -> Optional[Dict[str, Any]]:
+    def capture_base64(self, app_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        if self.system == "darwin":
+            return self._capture_macos_active_window(app_name)
+        return self._capture_fullscreen()
+
+    def _capture_fullscreen(self) -> Optional[Dict[str, Any]]:
         if not self._lazy_import():
             return None
         try:
@@ -345,30 +359,120 @@ class ScreenshotCapture:
                 monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
                 shot = sct.grab(monitor)
                 image = self._image_mod.frombytes("RGB", shot.size, shot.rgb)
-
-                max_width = max(320, int(self.cfg.screenshot_max_width))
-                if image.width > max_width:
-                    ratio = max_width / float(image.width)
-                    target_h = max(180, int(image.height * ratio))
-                    image = image.resize((max_width, target_h))
-
-                quality = min(95, max(30, int(self.cfg.screenshot_quality)))
-                buff = io.BytesIO()
-                image.save(buff, format="JPEG", quality=quality, optimize=True)
-                raw = buff.getvalue()
-                encoded = base64.b64encode(raw).decode("ascii")
-
-                return {
-                    "image_base64": encoded,
-                    "mime_type": "image/jpeg",
-                    "width": image.width,
-                    "height": image.height,
-                }
+                return self._encode_image(image)
         except Exception:
             if not self._warned:
                 print("[agent] aviso: falha ao capturar screenshot (verifique permissao de Gravacao de Tela).")
                 self._warned = True
             return None
+
+    def _capture_macos_active_window(self, app_name: Optional[str]) -> Optional[Dict[str, Any]]:
+        app = (app_name or "").strip().lower()
+        if not app or app in self._skip_apps:
+            if not self._warned_skip:
+                print("[agent] screenshot ignorado para app de sistema/desktop.")
+                self._warned_skip = True
+            return None
+
+        window_id = self._find_macos_window_id(app)
+        if not window_id:
+            return None
+
+        if not self._lazy_import():
+            return None
+
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                temp_path = tmp.name
+
+            subprocess.run(
+                ["screencapture", "-x", "-l", str(window_id), temp_path],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+
+            if not temp_path or not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+                return None
+
+            image = self._image_mod.open(temp_path).convert("RGB")
+            return self._encode_image(image)
+        except Exception:
+            if not self._warned:
+                print("[agent] aviso: falha ao capturar janela ativa (verifique permissao de Gravacao de Tela).")
+                self._warned = True
+            return None
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+    def _find_macos_window_id(self, app_name_lower: str) -> Optional[int]:
+        try:
+            import Quartz  # type: ignore
+
+            windows = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly,
+                Quartz.kCGNullWindowID,
+            )
+            if not windows:
+                return None
+
+            best_window_id: Optional[int] = None
+            best_area = 0.0
+
+            for window in windows:
+                owner = (window.get("kCGWindowOwnerName") or "").strip().lower()
+                if owner != app_name_lower:
+                    continue
+
+                layer = int(window.get("kCGWindowLayer", 1))
+                alpha = float(window.get("kCGWindowAlpha", 1))
+                if layer != 0 or alpha <= 0:
+                    continue
+
+                bounds = window.get("kCGWindowBounds") or {}
+                width = float(bounds.get("Width", 0))
+                height = float(bounds.get("Height", 0))
+                area = width * height
+                if area < 20000:
+                    continue
+
+                window_id = window.get("kCGWindowNumber")
+                if window_id is None:
+                    continue
+
+                if area > best_area:
+                    best_area = area
+                    best_window_id = int(window_id)
+
+            return best_window_id
+        except Exception:
+            return None
+
+    def _encode_image(self, image: Any) -> Dict[str, Any]:
+        max_width = max(320, int(self.cfg.screenshot_max_width))
+        if image.width > max_width:
+            ratio = max_width / float(image.width)
+            target_h = max(180, int(image.height * ratio))
+            image = image.resize((max_width, target_h))
+
+        quality = min(95, max(30, int(self.cfg.screenshot_quality)))
+        buff = io.BytesIO()
+        image.save(buff, format="JPEG", quality=quality, optimize=True)
+        raw = buff.getvalue()
+        encoded = base64.b64encode(raw).decode("ascii")
+
+        return {
+            "image_base64": encoded,
+            "mime_type": "image/jpeg",
+            "width": image.width,
+            "height": image.height,
+        }
 
 
 class ApiClient:
@@ -477,7 +581,7 @@ class Agent:
         if (now - self.last_screenshot) < max(10, self.cfg.screenshot_interval_sec):
             return
 
-        shot = self.screenshot.capture_base64()
+        shot = self.screenshot.capture_base64(event.get("app_name"))
         if not shot:
             return
 
