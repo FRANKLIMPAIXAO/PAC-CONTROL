@@ -28,10 +28,13 @@ export default function TopNav({ user }) {
           Analises
         </Link>
         {(user.role === 'admin') && (
-          <Link href="/configuracoes" className="badge" style={{ fontWeight: pathname === '/configuracoes' ? 700 : 400 }}>
+          <Link href="/configuracoes" className="badge" style={{ fontWeight: pathname.startsWith('/configuracoes') ? 700 : 400 }}>
             Configuracoes
           </Link>
         )}
+        <Link href="/perfil" className="badge" style={{ fontWeight: pathname === '/perfil' ? 700 : 400 }}>
+          Meu perfil
+        </Link>
         <span className="badge">Nivel: {user.role}</span>
         <button onClick={logout} style={{ width: 'auto', padding: '8px 12px' }}>
           Sair
