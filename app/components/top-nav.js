@@ -24,9 +24,11 @@ export default function TopNav({ user }) {
         <Link href="/dashboard" className="badge" style={{ fontWeight: pathname === '/dashboard' ? 700 : 400 }}>
           Painel
         </Link>
-        <Link href="/reports" className="badge" style={{ fontWeight: pathname === '/reports' ? 700 : 400 }}>
-          Analises
-        </Link>
+        {(user.role === 'admin') && (
+          <Link href="/reports" className="badge" style={{ fontWeight: pathname === '/reports' ? 700 : 400 }}>
+            Analises
+          </Link>
+        )}
         {(user.role === 'admin') && (
           <Link href="/configuracoes" className="badge" style={{ fontWeight: pathname.startsWith('/configuracoes') ? 700 : 400 }}>
             Configuracoes

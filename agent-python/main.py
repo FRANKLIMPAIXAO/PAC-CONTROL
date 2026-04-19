@@ -27,6 +27,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 import requests
 
@@ -233,6 +234,78 @@ class IdleDetector:
             return None
 
 
+class DomainDetector:
+    def __init__(self) -> None:
+        self.system = platform.system().lower()
+        self._warned_permission = False
+        self._mac_browser_scripts = {
+            "google chrome": 'tell application "Google Chrome" to if (count of windows) > 0 then get URL of active tab of front window',
+            "microsoft edge": 'tell application "Microsoft Edge" to if (count of windows) > 0 then get URL of active tab of front window',
+            "brave browser": 'tell application "Brave Browser" to if (count of windows) > 0 then get URL of active tab of front window',
+            "opera": 'tell application "Opera" to if (count of windows) > 0 then get URL of active tab of front window',
+            "vivaldi": 'tell application "Vivaldi" to if (count of windows) > 0 then get URL of active tab of front window',
+            "arc": 'tell application "Arc" to if (count of windows) > 0 then get URL of active tab of front window',
+            "safari": 'tell application "Safari" to if (count of windows) > 0 then get URL of front document',
+        }
+
+    def detect_domain(self, app_name: Optional[str], window_title: Optional[str]) -> Optional[str]:
+        if self.system == "darwin":
+            domain = self._domain_macos(app_name)
+            if domain:
+                return domain
+
+        # Fallback generico: so tenta extrair se houver URL visivel no titulo.
+        if window_title:
+            parsed = self._normalize_url(window_title.strip())
+            if parsed:
+                return parsed
+        return None
+
+    def _domain_macos(self, app_name: Optional[str]) -> Optional[str]:
+        if not app_name:
+            return None
+        script = self._mac_browser_scripts.get(app_name.strip().lower())
+        if not script:
+            return None
+        url = self._run_osascript(script)
+        if not url:
+            return None
+        return self._normalize_url(url)
+
+    def _run_osascript(self, script: str) -> Optional[str]:
+        try:
+            out = subprocess.check_output(
+                ["osascript", "-e", script],
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            ).decode("utf-8", errors="ignore").strip()
+            return out or None
+        except Exception:
+            # Sem permissao de automacao no macOS, manter silencioso apos primeiro aviso.
+            if not self._warned_permission:
+                print("[agent] aviso: sem permissao para ler URL do navegador (Automacao no macOS).")
+                self._warned_permission = True
+            return None
+
+    def _normalize_url(self, raw: str) -> Optional[str]:
+        try:
+            value = raw.strip()
+            if not value:
+                return None
+            if "://" not in value:
+                return None
+
+            parsed = urlparse(value)
+            host = (parsed.hostname or "").lower().strip()
+            if not host:
+                return None
+            if host.startswith("www."):
+                host = host[4:]
+            return host or None
+        except Exception:
+            return None
+
+
 class ApiClient:
     def __init__(self, cfg: AgentConfig):
         self.cfg = cfg
@@ -265,6 +338,7 @@ class Agent:
         self.activity = ActivityCounter()
         self.foreground = ForegroundDetector()
         self.idle = IdleDetector()
+        self.domain = DomainDetector()
         self.hostname = socket.gethostname()
         self.os_name = platform.system().lower()
         self.device_id: Optional[str] = None
@@ -295,6 +369,7 @@ class Agent:
 
     def sample_event(self) -> Dict[str, Any]:
         app_name, window_title = self.foreground.detect()
+        url_domain = self.domain.detect_domain(app_name, window_title)
         idle_seconds = self.idle.idle_seconds()
         is_idle = bool(idle_seconds is not None and idle_seconds >= self.cfg.idle_threshold_sec)
 
@@ -304,7 +379,7 @@ class Agent:
             "ts": utc_now_iso(),
             "event_type": "activity",
             "app_name": app_name,
-            "url_domain": None,
+            "url_domain": url_domain,
             "window_hash": hash_text(window_title or ""),
             "is_idle": is_idle,
             "keys_count": keys_count,

@@ -1,4 +1,4 @@
-import { requireSession } from '@/lib/auth-server';
+import { requireRoles } from '@/lib/auth-server';
 import sql from '@/lib/db';
 import { formatDuration, pct } from '@/lib/format';
 import { readFileSync } from 'fs';
@@ -83,7 +83,7 @@ function formatTs(value) {
 }
 
 export default async function ReportsPage({ searchParams }) {
-  const session = await requireSession();
+  const session = await requireRoles(['admin']);
   const params = await searchParams;
   const range = defaultRange();
   const from = params?.from || range.from;

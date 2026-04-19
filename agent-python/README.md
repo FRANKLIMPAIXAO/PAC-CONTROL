@@ -4,6 +4,7 @@ Agente desktop MVP para enviar atividade para o PAC CONTROL.
 
 ## O que coleta
 - `app_name` em foco
+- `url_domain` do navegador ativo (quando permitido no sistema)
 - `window_hash` (hash SHA-256 do titulo da janela)
 - `is_idle` por tempo sem interacao
 - `keys_count` e `mouse_count` em modo estatistico
@@ -51,8 +52,20 @@ PAC_AGENT_CONFIG=/caminho/agent-config.json python main.py
 
 ## Observacoes por SO
 - Windows: detecta app/titulo da janela e idle nativo.
-- macOS: detecta app frontmost via `osascript`; idle via Quartz se disponivel.
+- macOS: detecta app frontmost via `osascript`; idle via Quartz; tenta capturar dominio do navegador ativo (Chrome/Safari/Edge/Brave/Arc/Opera/Vivaldi) via automacao.
 - Linux: fallback com `xdotool`/`xprintidle` quando instalados.
+
+## Permissoes no macOS para capturar sites
+Para preencher `url_domain`, o macOS pode pedir permissao de automacao para o agente controlar o navegador.
+Se negar, o agente continua funcionando, mas sem dominio.
+
+Passos:
+1. Ajustes do Sistema -> Privacidade e Seguranca -> Automacao
+2. Permitir `PACControlAgent` controlar os navegadores usados
+3. Reiniciar o agente:
+```bash
+launchctl kickstart -k gui/$(id -u)/com.paccontrol.agent
+```
 
 ## Producao
 - Rodar como servico do sistema (systemd no Linux, Task Scheduler no Windows, LaunchAgent no macOS).
