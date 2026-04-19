@@ -8,6 +8,8 @@ import Avatar from '@/app/components/avatar';
 import CompositionDonut from '@/app/components/charts/composition-donut';
 import FocusRanking from '@/app/components/charts/focus-ranking';
 
+const APP_TIMEZONE = 'America/Sao_Paulo';
+
 const DEMO_ROWS = [
   { user_id: 'u1', productive_sec: 18200, neutral_sec: 4500, unproductive_sec: 1800, idle_sec: 3600, users: { name: 'Ana Paula', email: 'ana@suaempresa.com' } },
   { user_id: 'u2', productive_sec: 21600, neutral_sec: 3200, unproductive_sec: 900, idle_sec: 2700, users: { name: 'Carlos Lima', email: 'carlos@suaempresa.com' } },
@@ -77,7 +79,7 @@ function formatTs(value) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleString('pt-BR');
+  return d.toLocaleString('pt-BR', { timeZone: APP_TIMEZONE });
 }
 
 export default async function ReportsPage({ searchParams }) {
@@ -160,13 +162,13 @@ export default async function ReportsPage({ searchParams }) {
     `;
 
     hourlyActivity = await sql`
-      SELECT EXTRACT(HOUR FROM er.ts)::int AS hour,
+      SELECT EXTRACT(HOUR FROM (er.ts AT TIME ZONE ${APP_TIMEZONE}))::int AS hour,
              COALESCE(SUM(er.keys_count), 0)::int AS keys_total,
              COALESCE(SUM(er.mouse_count), 0)::int AS mouse_total,
              COUNT(*)::int AS events
       FROM events_raw er
-      WHERE er.ts >= date_trunc('day', now())
-        AND er.ts < (date_trunc('day', now()) + INTERVAL '1 day')
+      WHERE er.ts >= (date_trunc('day', (now() AT TIME ZONE ${APP_TIMEZONE})) AT TIME ZONE ${APP_TIMEZONE})
+        AND er.ts < ((date_trunc('day', (now() AT TIME ZONE ${APP_TIMEZONE})) + INTERVAL '1 day') AT TIME ZONE ${APP_TIMEZONE})
         ${eventsFilter}
       GROUP BY 1
       ORDER BY 1
