@@ -14,8 +14,10 @@ Envia dados para:
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
 import hashlib
+import io
 import json
 import os
 import platform
@@ -50,6 +52,11 @@ class AgentConfig:
     idle_threshold_sec: int = 300
     verify_tls: bool = True
     request_timeout_sec: int = 10
+    enable_screenshots: bool = True
+    screenshot_interval_sec: int = 60
+    screenshot_max_width: int = 1600
+    screenshot_quality: int = 55
+    screenshot_only_when_active: bool = True
 
 
 def load_config() -> AgentConfig:
@@ -306,6 +313,64 @@ class DomainDetector:
             return None
 
 
+class ScreenshotCapture:
+    def __init__(self, cfg: AgentConfig) -> None:
+        self.cfg = cfg
+        self.system = platform.system().lower()
+        self._warned = False
+        self._mss = None
+        self._image_mod = None
+
+    def _lazy_import(self) -> bool:
+        if self._mss and self._image_mod:
+            return True
+        try:
+            import mss  # type: ignore
+            from PIL import Image  # type: ignore
+
+            self._mss = mss
+            self._image_mod = Image
+            return True
+        except Exception:
+            if not self._warned:
+                print("[agent] screenshot desativado: dependencias ausentes (mss/Pillow).")
+                self._warned = True
+            return False
+
+    def capture_base64(self) -> Optional[Dict[str, Any]]:
+        if not self._lazy_import():
+            return None
+        try:
+            with self._mss.mss() as sct:
+                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                shot = sct.grab(monitor)
+                image = self._image_mod.frombytes("RGB", shot.size, shot.rgb)
+
+                max_width = max(320, int(self.cfg.screenshot_max_width))
+                if image.width > max_width:
+                    ratio = max_width / float(image.width)
+                    target_h = max(180, int(image.height * ratio))
+                    image = image.resize((max_width, target_h))
+
+                quality = min(95, max(30, int(self.cfg.screenshot_quality)))
+                buff = io.BytesIO()
+                image.save(buff, format="JPEG", quality=quality, optimize=True)
+                raw = buff.getvalue()
+                encoded = base64.b64encode(raw).decode("ascii")
+
+                return {
+                    "image_base64": encoded,
+                    "mime_type": "image/jpeg",
+                    "width": image.width,
+                    "height": image.height,
+                }
+        except Exception:
+            if not self._warned:
+                print("[agent] aviso: falha ao capturar screenshot (verifique permissao de Gravacao de Tela).")
+                self._warned = True
+            return None
+
+
 class ApiClient:
     def __init__(self, cfg: AgentConfig):
         self.cfg = cfg
@@ -339,6 +404,7 @@ class Agent:
         self.foreground = ForegroundDetector()
         self.idle = IdleDetector()
         self.domain = DomainDetector()
+        self.screenshot = ScreenshotCapture(cfg)
         self.hostname = socket.gethostname()
         self.os_name = platform.system().lower()
         self.device_id: Optional[str] = None
@@ -346,6 +412,7 @@ class Agent:
         self.events_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue(maxsize=2000)
         self.last_heartbeat = 0.0
         self.last_flush = 0.0
+        self.last_screenshot = 0.0
 
     def register_device(self) -> None:
         payload = {
@@ -398,6 +465,38 @@ class Agent:
             _ = self.events_queue.get_nowait()
             self.events_queue.put_nowait(event)
 
+    def send_screenshot_if_due(self, event: Dict[str, Any]) -> None:
+        if not self.cfg.enable_screenshots:
+            return
+        if not self.device_id:
+            return
+        if self.cfg.screenshot_only_when_active and bool(event.get("is_idle")):
+            return
+
+        now = time.time()
+        if (now - self.last_screenshot) < max(10, self.cfg.screenshot_interval_sec):
+            return
+
+        shot = self.screenshot.capture_base64()
+        if not shot:
+            return
+
+        payload = {
+            "device_id": self.device_id,
+            "user_id": self.cfg.user_id,
+            "ts": event.get("ts") or utc_now_iso(),
+            "app_name": event.get("app_name"),
+            "url_domain": event.get("url_domain"),
+            "is_idle": bool(event.get("is_idle")),
+            "image_base64": shot["image_base64"],
+            "mime_type": shot["mime_type"],
+            "width": shot["width"],
+            "height": shot["height"],
+        }
+        self.client.post("/api/agent/screenshot", payload)
+        self.last_screenshot = now
+        print("[agent] screenshot enviado.")
+
     def flush_if_due(self, force: bool = False) -> None:
         if not self.device_id:
             return
@@ -432,6 +531,7 @@ class Agent:
                 event = self.sample_event()
                 self.enqueue_event(event)
                 self.send_heartbeat_if_due(bool(event.get("is_idle")))
+                self.send_screenshot_if_due(event)
                 self.flush_if_due(force=False)
             except Exception as exc:
                 print(f"[agent] erro no ciclo: {exc}")

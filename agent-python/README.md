@@ -8,10 +8,10 @@ Agente desktop MVP para enviar atividade para o PAC CONTROL.
 - `window_hash` (hash SHA-256 do titulo da janela)
 - `is_idle` por tempo sem interacao
 - `keys_count` e `mouse_count` em modo estatistico
+- screenshot periodico da tela ativa (JPEG comprimido), quando habilitado
 
 ## O que NAO coleta
 - conteudo digitado
-- captura de tela
 - conteudo integral de janela
 
 ## Requisitos
@@ -32,6 +32,11 @@ Edite o `config.json` com:
 - `api_base_url` (ex: `https://controle.pactarefas.com.br`)
 - `api_token`
 - `user_id`
+- `enable_screenshots` (`true/false`)
+- `screenshot_interval_sec` (ex: `60`)
+- `screenshot_max_width` (ex: `1600`)
+- `screenshot_quality` (30-95)
+- `screenshot_only_when_active` (captura apenas quando nao idle)
 
 ## Execucao
 ```bash
@@ -49,6 +54,7 @@ PAC_AGENT_CONFIG=/caminho/agent-config.json python main.py
 - `POST /api/agent/register-device`
 - `POST /api/agent/heartbeat`
 - `POST /api/agent/events-batch`
+- `POST /api/agent/screenshot`
 
 ## Observacoes por SO
 - Windows: detecta app/titulo da janela e idle nativo.
@@ -62,6 +68,15 @@ Se negar, o agente continua funcionando, mas sem dominio.
 Passos:
 1. Ajustes do Sistema -> Privacidade e Seguranca -> Automacao
 2. Permitir `PACControlAgent` controlar os navegadores usados
+3. Reiniciar o agente:
+```bash
+launchctl kickstart -k gui/$(id -u)/com.paccontrol.agent
+```
+
+## Permissoes no macOS para screenshots
+Para capturar tela no macOS:
+1. Ajustes do Sistema -> Privacidade e Seguranca -> Gravacao de Tela
+2. Permitir `PACControlAgent`
 3. Reiniciar o agente:
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.paccontrol.agent

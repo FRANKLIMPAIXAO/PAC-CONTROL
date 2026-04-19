@@ -9,5 +9,10 @@
   "batch_size": 50,
   "idle_threshold_sec": 300,
   "verify_tls": true,
-  "request_timeout_sec": 10
+  "request_timeout_sec": 10,
+  "enable_screenshots": true,
+  "screenshot_interval_sec": 60,
+  "screenshot_max_width": 1600,
+  "screenshot_quality": 55,
+  "screenshot_only_when_active": true
 }

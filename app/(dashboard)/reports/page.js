@@ -49,6 +49,11 @@ const DEMO_HOURLY = [
   { hour: 11, keys_total: 110, mouse_total: 70, events: 14 },
 ];
 
+const DEMO_SCREENSHOTS = [
+  { id: 'demo-1', ts: new Date().toISOString(), app_name: 'Google Chrome', url_domain: 'controle.pactarefas.com.br' },
+  { id: 'demo-2', ts: new Date(Date.now() - 60_000).toISOString(), app_name: 'Codex', url_domain: null },
+];
+
 function defaultRange() {
   const to = new Date();
   const from = new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
@@ -101,6 +106,7 @@ export default async function ReportsPage({ searchParams }) {
   let recentEvents;
   let hourlyActivity;
   let interactionTotals;
+  let screenshots;
 
   if (process.env.DEMO_MODE === 'true') {
     data = DEMO_ROWS;
@@ -108,6 +114,7 @@ export default async function ReportsPage({ searchParams }) {
     topDomains = DEMO_TOP_DOMAINS;
     recentEvents = DEMO_RECENT;
     hourlyActivity = DEMO_HOURLY;
+    screenshots = DEMO_SCREENSHOTS;
     interactionTotals = {
       keys_total: DEMO_RECENT.reduce((a, r) => a + r.keys_count, 0),
       mouse_total: DEMO_RECENT.reduce((a, r) => a + r.mouse_count, 0),
@@ -184,6 +191,20 @@ export default async function ReportsPage({ searchParams }) {
     `;
 
     interactionTotals = totalRow || { keys_total: 0, mouse_total: 0 };
+
+    try {
+      screenshots = await sql`
+        SELECT se.id, se.ts, se.app_name, se.url_domain
+        FROM screenshot_events se
+        WHERE se.ts >= ${from}::date
+          AND se.ts < (${to}::date + INTERVAL '1 day')
+          ${eventsFilter}
+        ORDER BY se.ts DESC
+        LIMIT 24
+      `;
+    } catch {
+      screenshots = [];
+    }
   }
 
   const grouped = new Map();
@@ -243,6 +264,51 @@ export default async function ReportsPage({ searchParams }) {
           <span className="badge badge-info" style={{ fontSize: 13, padding: '6px 14px' }}>
             Periodo ativo: {activePeriod.name} (meta {activePeriod.focusTarget}%)
           </span>
+        )}
+      </div>
+
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
+          <h3 style={{ margin: 0 }}>Capturas recentes de tela</h3>
+          <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
+            Visualizacao restrita ao admin. Ultimas {screenshots.length} capturas no periodo.
+          </p>
+        </div>
+        {screenshots.length === 0 ? (
+          <div className="muted" style={{ textAlign: 'center', padding: 24 }}>
+            Sem screenshots no periodo. Verifique se o agente tem permissao de Gravacao de Tela.
+          </div>
+        ) : (
+          <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
+            {screenshots.map((shot, idx) => (
+              <a
+                key={shot.id}
+                href={`/api/screenshots/${shot.id}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  border: '1px solid var(--line)',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  background: '#fff',
+                }}
+              >
+                <img
+                  src={`/api/screenshots/${shot.id}`}
+                  alt={`Screenshot ${idx + 1}`}
+                  style={{ width: '100%', height: 150, objectFit: 'cover', display: 'block', background: '#f8fafc' }}
+                  loading="lazy"
+                />
+                <div style={{ padding: 10 }}>
+                  <div style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>{shot.app_name || '(sem app)'}</div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>{shot.url_domain || 'site nao identificado'}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{formatTs(shot.ts)}</div>
+                </div>
+              </a>
+            ))}
+          </div>
         )}
       </div>
 

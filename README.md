@@ -4,7 +4,7 @@ Projeto completo para 10 colaboradores com:
 - login por email/senha
 - perfis `admin`, `rh`, `gestor`, `colaborador`
 - dashboard e relatorios
-- APIs de agente desktop (register/heartbeat/events)
+- APIs de agente desktop (register/heartbeat/events/screenshot)
 - cron de agregacao diaria e retencao
 
 ## Stack
@@ -61,6 +61,7 @@ Abrir: `http://localhost:3000/login`
 - `POST /api/agent/register-device`
 - `POST /api/agent/heartbeat`
 - `POST /api/agent/events-batch`
+- `POST /api/agent/screenshot`
 
 Header exigido nos endpoints do agente:
 ```http
@@ -89,6 +90,7 @@ Authorization: Bearer <DASHBOARD_API_TOKEN>
 ## 6) LGPD minimo
 - Aviso formal + consentimento do colaborador
 - Sem keylogger e sem captura de conteudo digitado
+- Se habilitar screenshot, documentar finalidade e politica interna de acesso/retenção
 - Controle de acesso por perfil
 - Auditoria e retencao de dados
 
