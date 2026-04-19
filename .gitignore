@@ -27,3 +27,8 @@ lib/supabase.js
 # OS
 .DS_Store
 Thumbs.db
+
+# Agent Python build artifacts
+agent-python/dist/
+agent-python/build/tmp/
+agent-python/build/out/
