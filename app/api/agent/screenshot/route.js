@@ -66,27 +66,32 @@ export async function POST(req) {
 
     const sha256 = crypto.createHash('sha256').update(imageBuffer).digest('hex');
     const ext = extFromMime(mimeType);
-
+    const timestamp = (ts || new Date().toISOString()).replace(/[:.]/g, '-');
     const storageRoot = process.env.SCREENSHOTS_DIR || '/tmp/pac-control-screenshots';
     const day = (ts || new Date().toISOString()).slice(0, 10);
     const targetDir = path.join(storageRoot, safeSegment(day));
-    await fs.mkdir(targetDir, { recursive: true });
-
-    const timestamp = (ts || new Date().toISOString()).replace(/[:.]/g, '-');
     const fileName = `${timestamp}_${safeSegment(user_id)}_${safeSegment(device_id)}_${sha256.slice(0, 12)}.${ext}`;
     const filePath = path.join(targetDir, fileName);
 
-    await fs.writeFile(filePath, imageBuffer);
+    // Persistencia principal agora e no banco (image_bytes).
+    // Em paralelo, mantemos tentativa de escrita em disco para compatibilidade.
+    try {
+      await fs.mkdir(targetDir, { recursive: true });
+      await fs.writeFile(filePath, imageBuffer);
+    } catch {
+      // Sem volume/pasta, segue com armazenamento no banco.
+    }
 
     const [row] = await sql`
       INSERT INTO screenshot_events (
         device_id, user_id, ts, app_name, url_domain, is_idle,
-        mime_type, file_path, sha256, size_bytes, width, height
+        mime_type, file_path, sha256, size_bytes, width, height, image_bytes
       ) VALUES (
         ${device_id}, ${user_id}, ${ts || new Date().toISOString()},
         ${app_name || null}, ${url_domain || null}, ${Boolean(is_idle)},
         ${mimeType}, ${filePath}, ${sha256}, ${imageBuffer.length},
-        ${Number(width || 0) || null}, ${Number(height || 0) || null}
+        ${Number(width || 0) || null}, ${Number(height || 0) || null},
+        ${imageBuffer}
       )
       RETURNING id, ts
     `;
