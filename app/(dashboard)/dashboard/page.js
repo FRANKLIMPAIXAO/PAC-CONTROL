@@ -1,4 +1,7 @@
 import MetricCard from '@/app/components/metric-card';
+import Avatar from '@/app/components/avatar';
+import HourlyTimeline from '@/app/components/charts/hourly-timeline';
+import CompositionDonut from '@/app/components/charts/composition-donut';
 import { requireSession } from '@/lib/auth-server';
 import sql from '@/lib/db';
 import { formatDuration, pct } from '@/lib/format';
@@ -48,12 +51,10 @@ function defaultRange() {
 }
 
 function statusInfo(member) {
-  if (member.lastSeenMin > 10) return { label: 'Offline', color: '#9ca3af', bg: '#f3f4f6' };
+  if (member.lastSeenMin > 10) return { label: 'Offline', color: '#64748b', bg: '#e2e8f0' };
   if (member.isIdle)           return { label: 'Ocioso',  color: '#d97706', bg: '#fef3c7' };
   return                              { label: 'Online',  color: '#059669', bg: '#d1fae5' };
 }
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage({ searchParams }) {
   const session = await requireSession();
@@ -76,10 +77,10 @@ export default async function DashboardPage({ searchParams }) {
 
   const totals = (data || []).reduce(
     (acc, row) => {
-      acc.productive    += row.productive_sec    || 0;
-      acc.neutral       += row.neutral_sec       || 0;
-      acc.unproductive  += row.unproductive_sec  || 0;
-      acc.idle          += row.idle_sec          || 0;
+      acc.productive   += row.productive_sec   || 0;
+      acc.neutral      += row.neutral_sec      || 0;
+      acc.unproductive += row.unproductive_sec || 0;
+      acc.idle         += row.idle_sec         || 0;
       return acc;
     },
     { productive: 0, neutral: 0, unproductive: 0, idle: 0 }
@@ -95,126 +96,164 @@ export default async function DashboardPage({ searchParams }) {
   const idle    = team.filter(m => m.lastSeenMin <= 10 &&  m.isIdle);
   const offline = team.filter(m => m.lastSeenMin >  10);
 
+  const today = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
+
   return (
     <section className="grid" style={{ gap: 20 }}>
 
       {/* ── Header ── */}
-      <div className="card">
-        <h1 style={{ margin: 0 }}>Painel PAC CONTROL</h1>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Visao operacional do periodo: {from} ate {to}
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Painel operacional</h1>
+          <p className="muted" style={{ margin: '4px 0 0', textTransform: 'capitalize' }}>
+            {today} — periodo: {from} ate {to}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <span className="badge badge-success">● {online.length} online</span>
+          <span className="badge badge-warning">● {idle.length} ocioso</span>
+          <span className="badge">● {offline.length} offline</span>
+        </div>
       </div>
 
       {/* ── Alertas de ociosidade ── */}
       {idle.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #d97706', background: '#fffbeb' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: 18 }}>⚠️</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{
+              width: 32, height: 32, borderRadius: 8,
+              background: '#fef3c7', color: '#92400e',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+            }}>⚠</span>
             <strong style={{ color: '#92400e' }}>
-              {idle.length} colaborador{idle.length > 1 ? 'es' : ''} ocioso{idle.length > 1 ? 's' : ''} há mais de 30 min
+              {idle.length} colaborador{idle.length > 1 ? 'es' : ''} ocioso{idle.length > 1 ? 's' : ''} ha mais de 30 min
             </strong>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {idle.map(m => (
-              <span key={m.id} style={{
-                background: '#fef3c7', border: '1px solid #fcd34d',
-                borderRadius: 8, padding: '4px 12px', fontSize: 13, color: '#92400e'
+              <div key={m.id} style={{
+                background: '#fff', border: '1px solid #fcd34d',
+                borderRadius: 999, padding: '4px 12px 4px 4px', display: 'flex', alignItems: 'center', gap: 8,
+                fontSize: 13, color: '#92400e',
               }}>
-                {m.name} — {m.lastSeenMin} min ocioso
-              </span>
+                <Avatar name={m.name} size={24} />
+                <span><strong>{m.name}</strong> — {m.lastSeenMin} min</span>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* ── Métricas resumo ── */}
-      <div className="grid grid-3">
-        <MetricCard title="Tempo produtivo" value={formatDuration(totals.productive)} subtitle="Soma do periodo" />
-        <MetricCard title="Tempo ocioso"    value={formatDuration(totals.idle)}       subtitle="Inatividade" />
-        <MetricCard title="Foco"            value={pct(focus)}                        subtitle="Produtivo / ativo" />
+      {/* ── KPIs ── */}
+      <div className="grid grid-4">
+        <MetricCard
+          title="Tempo produtivo"
+          value={formatDuration(totals.productive)}
+          subtitle="Soma do periodo"
+          icon="⚡"
+          accent="brand"
+        />
+        <MetricCard
+          title="Foco"
+          value={pct(focus)}
+          subtitle="Produtivo / ativo"
+          icon="🎯"
+          accent={focus >= 70 ? 'success' : focus >= 55 ? 'warning' : 'danger'}
+        />
+        <MetricCard
+          title="Tempo ocioso"
+          value={formatDuration(totals.idle)}
+          subtitle="Inatividade total"
+          icon="⏸"
+          accent="warning"
+        />
+        <MetricCard
+          title="Improdutivo"
+          value={formatDuration(totals.unproductive)}
+          subtitle="Fora do escopo"
+          icon="⛔"
+          accent="danger"
+        />
+      </div>
+
+      {/* ── Gráficos lado a lado ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }} className="grid-auto">
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Atividade por hora — hoje</h3>
+          <HourlyTimeline data={timeline} />
+        </div>
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>Composicao geral</h3>
+          <CompositionDonut
+            productive={totals.productive}
+            neutral={totals.neutral}
+            unproductive={totals.unproductive}
+            idle={totals.idle}
+          />
+        </div>
       </div>
 
       {/* ── Equipe agora ── */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h3 style={{ margin: 0 }}>Equipe agora</h3>
+        <div className="flex-between" style={{ marginBottom: 16 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Equipe agora</h3>
+            <span className="muted" style={{ fontSize: 13 }}>Status em tempo real</span>
+          </div>
           <div style={{ display: 'flex', gap: 14, fontSize: 12 }} className="muted">
-            <span>🟢 Online: {online.length}</span>
-            <span>🟡 Ocioso: {idle.length}</span>
-            <span>⚫ Offline: {offline.length}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#059669' }} />
+              Online: <strong>{online.length}</strong>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#d97706' }} />
+              Ocioso: <strong>{idle.length}</strong>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#64748b' }} />
+              Offline: <strong>{offline.length}</strong>
+            </span>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
-          {team.map(member => {
-            const s = statusInfo(member);
-            return (
-              <div key={member.id} style={{
-                border: '1px solid var(--line)', borderRadius: 10,
-                padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10
-              }}>
-                <span style={{
-                  width: 10, height: 10, borderRadius: '50%',
-                  background: s.color, flexShrink: 0, display: 'inline-block'
-                }} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{member.name}</div>
-                  <div style={{ fontSize: 11, color: s.color }}>{s.label}</div>
+
+        {team.length === 0 ? (
+          <div className="muted" style={{ textAlign: 'center', padding: 30 }}>
+            Nenhum agente desktop conectado ainda. Instale o agente nos computadores dos colaboradores.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+            {team.map(member => {
+              const s = statusInfo(member);
+              return (
+                <div key={member.id} style={{
+                  border: '1px solid var(--line)',
+                  borderRadius: 12, padding: 12,
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  background: 'var(--panel)',
+                  transition: 'all 0.15s',
+                }}>
+                  <div style={{ position: 'relative' }}>
+                    <Avatar name={member.name} size={38} />
+                    <span style={{
+                      position: 'absolute', right: -2, bottom: -2,
+                      width: 12, height: 12, borderRadius: '50%',
+                      background: s.color, border: '2px solid #fff',
+                    }} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {member.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: s.color, fontWeight: 600 }}>
+                      {s.label}{member.lastSeenMin <= 10 ? ` · ${member.lastSeenMin}m` : ''}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      {/* ── Timeline intraday ── */}
-      <div className="card">
-        <h3 style={{ marginTop: 0, marginBottom: 4 }}>Atividade por hora — hoje</h3>
-        <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 12 }} className="muted">
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: '#0f766e', display: 'inline-block' }} /> Produtivo
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: '#6366f1', display: 'inline-block' }} /> Neutro
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: '#f59e0b', display: 'inline-block' }} /> Ocioso
-          </span>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: '#ef4444', display: 'inline-block' }} /> Improdutivo
-          </span>
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', height: 100 }}>
-          {timeline.map(slot => {
-            const total = slot.productive + slot.neutral + slot.unproductive + slot.idle || 1;
-            const pPct  = (slot.productive    / total) * 100;
-            const nPct  = (slot.neutral       / total) * 100;
-            const iPct  = (slot.idle          / total) * 100;
-            const uPct  = (slot.unproductive  / total) * 100;
-            return (
-              <div key={slot.hour} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: '100%', height: 80, display: 'flex', flexDirection: 'column', borderRadius: 6, overflow: 'hidden' }}>
-                  <div style={{ flex: pPct, background: '#0f766e' }} title={`Produtivo: ${pPct.toFixed(0)}%`} />
-                  <div style={{ flex: nPct, background: '#6366f1' }} title={`Neutro: ${nPct.toFixed(0)}%`} />
-                  <div style={{ flex: uPct, background: '#ef4444' }} title={`Improdutivo: ${uPct.toFixed(0)}%`} />
-                  <div style={{ flex: iPct, background: '#f59e0b' }} title={`Ocioso: ${iPct.toFixed(0)}%`} />
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)' }}>{slot.hour}h</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── Leitura rápida ── */}
-      <div className="card">
-        <h3 style={{ marginTop: 0 }}>Leitura rapida</h3>
-        <p className="muted" style={{ margin: 0 }}>
-          Tempo neutro: <strong>{formatDuration(totals.neutral)}</strong> &nbsp;•&nbsp;
-          Tempo improdutivo: <strong>{formatDuration(totals.unproductive)}</strong>
-        </p>
-      </div>
-
     </section>
   );
 }

@@ -1,0 +1,13 @@
+{
+  "api_base_url": "https://controle.pactarefas.com.br",
+  "api_token": "SEU_AGENT_BOOTSTRAP_TOKEN",
+  "user_id": "UUID_DO_COLABORADOR",
+  "agent_version": "0.1.0",
+  "sample_interval_sec": 10,
+  "heartbeat_interval_sec": 30,
+  "flush_interval_sec": 20,
+  "batch_size": 50,
+  "idle_threshold_sec": 300,
+  "verify_tls": true,
+  "request_timeout_sec": 10
+}

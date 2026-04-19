@@ -91,3 +91,18 @@ Authorization: Bearer <DASHBOARD_API_TOKEN>
 - Sem keylogger e sem captura de conteudo digitado
 - Controle de acesso por perfil
 - Auditoria e retencao de dados
+
+## 7) Agente Desktop em Python
+- Pasta: `agent-python/`
+- Guia: `agent-python/README.md`
+- Script principal: `agent-python/main.py`
+
+Comandos rapidos:
+```bash
+cd agent-python
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp config.example.json config.json
+python main.py
+```

@@ -1,0 +1,16 @@
+[Unit]
+Description=PAC CONTROL Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pac-control-agent
+Environment=PAC_AGENT_CONFIG=/opt/pac-control-agent/config.json
+ExecStart=/opt/pac-control-agent/.venv/bin/python /opt/pac-control-agent/main.py
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
