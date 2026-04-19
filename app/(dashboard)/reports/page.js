@@ -50,8 +50,8 @@ const DEMO_HOURLY = [
 ];
 
 const DEMO_SCREENSHOTS = [
-  { id: 'demo-1', ts: new Date().toISOString(), app_name: 'Google Chrome', url_domain: 'controle.pactarefas.com.br' },
-  { id: 'demo-2', ts: new Date(Date.now() - 60_000).toISOString(), app_name: 'Codex', url_domain: null },
+  { user_id: 'u1', name: 'Ana Paula', email: 'ana@suaempresa.com', shots: 12, last_ts: new Date().toISOString() },
+  { user_id: 'u2', name: 'Carlos Lima', email: 'carlos@suaempresa.com', shots: 8, last_ts: new Date(Date.now() - 60_000).toISOString() },
 ];
 
 function defaultRange() {
@@ -106,7 +106,7 @@ export default async function ReportsPage({ searchParams }) {
   let recentEvents;
   let hourlyActivity;
   let interactionTotals;
-  let screenshots;
+  let screenshotGroups;
 
   if (process.env.DEMO_MODE === 'true') {
     data = DEMO_ROWS;
@@ -114,7 +114,7 @@ export default async function ReportsPage({ searchParams }) {
     topDomains = DEMO_TOP_DOMAINS;
     recentEvents = DEMO_RECENT;
     hourlyActivity = DEMO_HOURLY;
-    screenshots = DEMO_SCREENSHOTS;
+    screenshotGroups = DEMO_SCREENSHOTS;
     interactionTotals = {
       keys_total: DEMO_RECENT.reduce((a, r) => a + r.keys_count, 0),
       mouse_total: DEMO_RECENT.reduce((a, r) => a + r.mouse_count, 0),
@@ -193,17 +193,24 @@ export default async function ReportsPage({ searchParams }) {
     interactionTotals = totalRow || { keys_total: 0, mouse_total: 0 };
 
     try {
-      screenshots = await sql`
-        SELECT se.id, se.ts, se.app_name, se.url_domain
+      screenshotGroups = await sql`
+        SELECT
+          se.user_id,
+          u.name,
+          u.email,
+          COUNT(*)::int AS shots,
+          MAX(se.ts) AS last_ts
         FROM screenshot_events se
+        JOIN users u ON u.id = se.user_id
         WHERE se.ts >= ${from}::date
           AND se.ts < (${to}::date + INTERVAL '1 day')
           ${eventsFilter}
-        ORDER BY se.ts DESC
-        LIMIT 24
+        GROUP BY se.user_id, u.name, u.email
+        ORDER BY MAX(se.ts) DESC
+        LIMIT 20
       `;
     } catch {
-      screenshots = [];
+      screenshotGroups = [];
     }
   }
 
@@ -269,42 +276,38 @@ export default async function ReportsPage({ searchParams }) {
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
-          <h3 style={{ margin: 0 }}>Capturas recentes de tela</h3>
+          <h3 style={{ margin: 0 }}>Capturas por colaborador</h3>
           <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
-            Visualizacao restrita ao admin. Ultimas {screenshots.length} capturas no periodo.
+            Visualizacao restrita ao admin. Clique em um bloco para abrir a galeria por usuario.
           </p>
         </div>
-        {screenshots.length === 0 ? (
+        {screenshotGroups.length === 0 ? (
           <div className="muted" style={{ textAlign: 'center', padding: 24 }}>
             Sem screenshots no periodo. Verifique se o agente tem permissao de Gravacao de Tela.
           </div>
         ) : (
-          <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-            {screenshots.map((shot, idx) => (
+          <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+            {screenshotGroups.map(group => (
               <a
-                key={shot.id}
-                href={`/api/screenshots/${shot.id}`}
-                target="_blank"
-                rel="noreferrer"
+                key={group.user_id}
+                href={`/reports/screenshots?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&user_id=${group.user_id}`}
                 style={{
                   border: '1px solid var(--line)',
                   borderRadius: 12,
-                  overflow: 'hidden',
                   textDecoration: 'none',
                   color: 'inherit',
                   background: '#fff',
+                  padding: 12,
                 }}
               >
-                <img
-                  src={`/api/screenshots/${shot.id}`}
-                  alt={`Screenshot ${idx + 1}`}
-                  style={{ width: '100%', height: 150, objectFit: 'cover', display: 'block', background: '#f8fafc' }}
-                  loading="lazy"
-                />
-                <div style={{ padding: 10 }}>
-                  <div style={{ fontSize: 12, color: '#334155', fontWeight: 700 }}>{shot.app_name || '(sem app)'}</div>
-                  <div style={{ fontSize: 12, color: '#64748b' }}>{shot.url_domain || 'site nao identificado'}</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{formatTs(shot.ts)}</div>
+                <div style={{ fontSize: 14, color: '#0f172a', fontWeight: 800 }}>{group.name || 'Sem nome'}</div>
+                <div style={{ fontSize: 12, color: '#64748b' }}>{group.email || '-'}</div>
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="badge">{group.shots} captura(s)</span>
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>{formatTs(group.last_ts)}</span>
+                </div>
+                <div style={{ marginTop: 10, fontSize: 12, color: '#1d4ed8', fontWeight: 700 }}>
+                  Abrir capturas →
                 </div>
               </a>
             ))}
