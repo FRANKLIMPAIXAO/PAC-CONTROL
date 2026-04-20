@@ -621,23 +621,46 @@ class ScreenRecorder:
         out_w = out_h = 0
         deadline = time.time() + duration
 
-        # No macOS, mss.grab() em background thread nao captura janelas (retorna
-        # apenas o wallpaper). PIL.ImageGrab usa screencapture como subprocess,
-        # que funciona corretamente de qualquer thread.
-        use_imagegrab = (self.os_name == "darwin")
-
         try:
-            if use_imagegrab:
-                from PIL import ImageGrab  # type: ignore
-                bbox = None
+            if self.os_name == "darwin":
+                # screencapture subprocess funciona de qualquer thread e captura
+                # a tela composta (o que o usuario ve), ao contrario de mss/Quartz
+                # que em background thread retornam apenas o wallpaper.
+                import subprocess
+                import tempfile
+                region_args: list = []
                 if monitor:
-                    bbox = (monitor["left"], monitor["top"],
-                            monitor["left"] + monitor["width"],
-                            monitor["top"] + monitor["height"])
+                    x = monitor["left"]
+                    y = monitor["top"]
+                    w = monitor["width"]
+                    h = monitor["height"]
+                    region_args = ["-R", f"{x},{y},{w},{h}"]
+
                 while time.time() < deadline:
                     t0 = time.time()
-                    img = ImageGrab.grab(bbox=bbox, all_screens=True)
-                    img = img.convert("RGB")
+                    img = None
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                        tmp_frame = tf.name
+                    try:
+                        result = subprocess.run(
+                            ["screencapture", "-x"] + region_args + [tmp_frame],
+                            capture_output=True, timeout=4,
+                        )
+                        if result.returncode == 0:
+                            img = Image.open(tmp_frame).convert("RGB")
+                    except Exception:
+                        pass
+                    finally:
+                        try:
+                            os.unlink(tmp_frame)
+                        except Exception:
+                            pass
+
+                    if img is None:
+                        sleep = max(0.0, frame_interval - (time.time() - t0))
+                        if sleep:
+                            time.sleep(sleep)
+                        continue
 
                     if not out_w:
                         if img.width > max_width:
