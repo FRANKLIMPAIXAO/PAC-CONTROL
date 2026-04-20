@@ -25,7 +25,6 @@ import queue
 import signal
 import socket
 import subprocess
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -169,13 +168,26 @@ class ForegroundDetector:
 
     def _detect_macos(self) -> Tuple[Optional[str], Optional[str]]:
         try:
-            cmd = [
-                "osascript",
-                "-e",
-                'tell application "System Events" to get name of first application process whose frontmost is true',
-            ]
-            app_name = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode("utf-8", errors="ignore").strip()
-            return (app_name or None), None
+            script = """
+tell application "System Events"
+  set frontApp to first application process whose frontmost is true
+  set appName to name of frontApp
+  set winTitle to ""
+  try
+    set winTitle to name of front window of frontApp
+  end try
+  return appName & "||" & winTitle
+end tell
+"""
+            raw = subprocess.check_output(
+                ["osascript", "-e", script],
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            ).decode("utf-8", errors="ignore").strip()
+            if "||" in raw:
+                app_name, window_title = raw.split("||", 1)
+                return (app_name.strip() or None), (window_title.strip() or None)
+            return (raw or None), None
         except Exception:
             return None, None
 
@@ -346,9 +358,9 @@ class ScreenshotCapture:
                 self._warned = True
             return False
 
-    def capture_base64(self, app_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def capture_base64(self, app_name: Optional[str] = None, window_title: Optional[str] = None) -> Optional[Dict[str, Any]]:
         if self.system == "darwin":
-            return self._capture_macos_active_window(app_name)
+            return self._capture_macos_active_window(app_name, window_title)
         return self._capture_fullscreen()
 
     def _capture_fullscreen(self) -> Optional[Dict[str, Any]]:
@@ -366,7 +378,7 @@ class ScreenshotCapture:
                 self._warned = True
             return None
 
-    def _capture_macos_active_window(self, app_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    def _capture_macos_active_window(self, app_name: Optional[str], window_title: Optional[str]) -> Optional[Dict[str, Any]]:
         app = (app_name or "").strip().lower()
         if not app or app in self._skip_apps:
             if not self._warned_skip:
@@ -374,44 +386,52 @@ class ScreenshotCapture:
                 self._warned_skip = True
             return None
 
-        window_id = self._find_macos_window_id(app)
+        window_id = self._find_macos_window_id(app, window_title)
         if not window_id:
             return None
 
         if not self._lazy_import():
             return None
 
-        temp_path = None
         try:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                temp_path = tmp.name
+            import Quartz  # type: ignore
 
-            subprocess.run(
-                ["screencapture", "-x", "-l", str(window_id), temp_path],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
+            img_ref = Quartz.CGWindowListCreateImage(
+                Quartz.CGRectNull,
+                Quartz.kCGWindowListOptionIncludingWindow,
+                window_id,
+                Quartz.kCGWindowImageBoundsIgnoreFraming | Quartz.kCGWindowImageNominalResolution,
             )
-
-            if not temp_path or not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            if not img_ref:
                 return None
 
-            image = self._image_mod.open(temp_path).convert("RGB")
+            width = Quartz.CGImageGetWidth(img_ref)
+            height = Quartz.CGImageGetHeight(img_ref)
+            if width <= 10 or height <= 10:
+                return None
+
+            provider = Quartz.CGImageGetDataProvider(img_ref)
+            if not provider:
+                return None
+
+            data = Quartz.CGDataProviderCopyData(provider)
+            if not data:
+                return None
+
+            raw = bytes(data)
+            bits_per_pixel = Quartz.CGImageGetBitsPerPixel(img_ref)
+            bytes_per_row = Quartz.CGImageGetBytesPerRow(img_ref)
+            mode = "RGBA" if bits_per_pixel == 32 else "RGB"
+            image = self._image_mod.frombuffer(mode, (width, height), raw, "raw", "BGRA" if mode == "RGBA" else "BGRX", bytes_per_row, 1)
+            image = image.convert("RGB")
             return self._encode_image(image)
         except Exception:
             if not self._warned:
                 print("[agent] aviso: falha ao capturar janela ativa (verifique permissao de Gravacao de Tela).")
                 self._warned = True
             return None
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
 
-    def _find_macos_window_id(self, app_name_lower: str) -> Optional[int]:
+    def _find_macos_window_id(self, app_name_lower: str, window_title: Optional[str]) -> Optional[int]:
         try:
             import Quartz  # type: ignore
 
@@ -423,7 +443,8 @@ class ScreenshotCapture:
                 return None
 
             best_window_id: Optional[int] = None
-            best_area = 0.0
+            best_score = -1.0
+            title_norm = (window_title or "").strip().lower()
 
             for window in windows:
                 owner = (window.get("kCGWindowOwnerName") or "").strip().lower()
@@ -442,12 +463,21 @@ class ScreenshotCapture:
                 if area < 20000:
                     continue
 
+                wname = (window.get("kCGWindowName") or "").strip().lower()
+                if not wname:
+                    # Evita pegar janela sem nome (comum em camadas de background)
+                    continue
+
                 window_id = window.get("kCGWindowNumber")
                 if window_id is None:
                     continue
 
-                if area > best_area:
-                    best_area = area
+                score = area
+                if title_norm and (title_norm in wname or wname in title_norm):
+                    score += 10_000_000
+
+                if score > best_score:
+                    best_score = score
                     best_window_id = int(window_id)
 
             return best_window_id
@@ -581,7 +611,17 @@ class Agent:
         if (now - self.last_screenshot) < max(10, self.cfg.screenshot_interval_sec):
             return
 
-        shot = self.screenshot.capture_base64(event.get("app_name"))
+        current_app, current_title = self.foreground.detect()
+        capture_app = current_app or event.get("app_name")
+        capture_title = current_title
+
+        # Nova tentativa de identificar dominio para navegadores antes do screenshot.
+        if not event.get("url_domain"):
+            retry_domain = self.domain.detect_domain(capture_app, capture_title)
+            if retry_domain:
+                event["url_domain"] = retry_domain
+
+        shot = self.screenshot.capture_base64(capture_app, capture_title)
         if not shot:
             return
 
@@ -589,7 +629,7 @@ class Agent:
             "device_id": self.device_id,
             "user_id": self.cfg.user_id,
             "ts": event.get("ts") or utc_now_iso(),
-            "app_name": event.get("app_name"),
+            "app_name": capture_app or event.get("app_name"),
             "url_domain": event.get("url_domain"),
             "is_idle": bool(event.get("is_idle")),
             "image_base64": shot["image_base64"],
