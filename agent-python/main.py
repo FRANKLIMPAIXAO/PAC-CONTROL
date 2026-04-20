@@ -585,6 +585,7 @@ class ScreenRecorder:
     def __init__(self, cfg: AgentConfig) -> None:
         self.cfg = cfg
         self._warned = False
+        self.system = platform.system().lower()
 
     def _lazy_deps(self) -> bool:
         try:
@@ -622,10 +623,7 @@ class ScreenRecorder:
         deadline = time.time() + duration
 
         try:
-            if self.os_name == "darwin":
-                # screencapture subprocess funciona de qualquer thread e captura
-                # a tela composta (o que o usuario ve), ao contrario de mss/Quartz
-                # que em background thread retornam apenas o wallpaper.
+            if self.system == "darwin":
                 import subprocess
                 import tempfile
                 region_args: list = []
