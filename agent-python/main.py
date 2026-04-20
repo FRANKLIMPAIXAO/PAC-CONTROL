@@ -474,45 +474,21 @@ class ScreenshotCapture:
             print(f"[agent] janela nao encontrada para '{app}', usando tela cheia.")
             return self._capture_fullscreen()
 
+        bounds = self._get_macos_window_bounds(window_id)
+        if not bounds:
+            return self._capture_fullscreen(app_name)
+
         if not self._lazy_import():
             return None
 
         try:
-            import Quartz  # type: ignore
-
-            img_ref = Quartz.CGWindowListCreateImage(
-                Quartz.CGRectNull,
-                Quartz.kCGWindowListOptionIncludingWindow,
-                window_id,
-                Quartz.kCGWindowImageBoundsIgnoreFraming | Quartz.kCGWindowImageNominalResolution,
-            )
-            if not img_ref:
-                # Quartz nao conseguiu capturar a janela — usa tela cheia como fallback
-                return self._capture_fullscreen(app_name)
-
-            width = Quartz.CGImageGetWidth(img_ref)
-            height = Quartz.CGImageGetHeight(img_ref)
-            if width <= 10 or height <= 10:
-                return None
-
-            provider = Quartz.CGImageGetDataProvider(img_ref)
-            if not provider:
-                return None
-
-            data = Quartz.CGDataProviderCopyData(provider)
-            if not data:
-                return None
-
-            raw = bytes(data)
-            bits_per_pixel = Quartz.CGImageGetBitsPerPixel(img_ref)
-            bytes_per_row = Quartz.CGImageGetBytesPerRow(img_ref)
-            mode = "RGBA" if bits_per_pixel == 32 else "RGB"
-            image = self._image_mod.frombuffer(mode, (width, height), raw, "raw", "BGRA" if mode == "RGBA" else "BGRX", bytes_per_row, 1)
-            image = image.convert("RGB")
-            return self._encode_image(image)
+            with self._mss.mss() as sct:
+                shot = sct.grab(bounds)
+                image = self._image_mod.frombytes("RGB", shot.size, shot.rgb)
+                return self._encode_image(image)
         except Exception:
             if not self._warned:
-                print("[agent] aviso: falha ao capturar janela ativa (verifique permissao de Gravacao de Tela).")
+                print("[agent] aviso: falha ao capturar area da janela.")
                 self._warned = True
             return None
 
@@ -564,6 +540,23 @@ class ScreenshotCapture:
             return best_window_id
         except Exception:
             return None
+
+    def _get_macos_window_bounds(self, window_id: int) -> Optional[Dict[str, Any]]:
+        try:
+            import Quartz  # type: ignore
+            windows = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionIncludingWindow, window_id)
+            for w in (windows or []):
+                if int(w.get("kCGWindowNumber", -1)) != window_id:
+                    continue
+                b = w.get("kCGWindowBounds") or {}
+                x, y = int(b.get("X", 0)), int(b.get("Y", 0))
+                ww, wh = int(b.get("Width", 0)), int(b.get("Height", 0))
+                if ww > 10 and wh > 10:
+                    return {"top": y, "left": x, "width": ww, "height": wh}
+        except Exception:
+            pass
+        return None
 
     def _encode_image(self, image: Any) -> Dict[str, Any]:
         max_width = max(320, int(self.cfg.screenshot_max_width))
@@ -628,16 +621,23 @@ class ScreenRecorder:
         out_w = out_h = 0
         deadline = time.time() + duration
 
-        try:
-            with mss_lib.mss() as sct:
-                # Monitor ja foi detectado no thread principal — sem Quartz aqui
-                if not monitor:
-                    monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+        # No macOS, mss.grab() em background thread nao captura janelas (retorna
+        # apenas o wallpaper). PIL.ImageGrab usa screencapture como subprocess,
+        # que funciona corretamente de qualquer thread.
+        use_imagegrab = (self.os_name == "darwin")
 
+        try:
+            if use_imagegrab:
+                from PIL import ImageGrab  # type: ignore
+                bbox = None
+                if monitor:
+                    bbox = (monitor["left"], monitor["top"],
+                            monitor["left"] + monitor["width"],
+                            monitor["top"] + monitor["height"])
                 while time.time() < deadline:
                     t0 = time.time()
-                    shot = sct.grab(monitor)
-                    img = Image.frombytes("RGB", shot.size, shot.rgb)
+                    img = ImageGrab.grab(bbox=bbox, all_screens=True)
+                    img = img.convert("RGB")
 
                     if not out_w:
                         if img.width > max_width:
@@ -646,7 +646,6 @@ class ScreenRecorder:
                             out_h = int(img.height * ratio)
                         else:
                             out_w, out_h = img.width, img.height
-                        # H264 exige dimensoes pares
                         out_w -= out_w % 2
                         out_h -= out_h % 2
 
@@ -658,6 +657,34 @@ class ScreenRecorder:
                     sleep = max(0.0, frame_interval - (time.time() - t0))
                     if sleep:
                         time.sleep(sleep)
+            else:
+                with mss_lib.mss() as sct:
+                    if not monitor:
+                        monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+
+                    while time.time() < deadline:
+                        t0 = time.time()
+                        shot = sct.grab(monitor)
+                        img = Image.frombytes("RGB", shot.size, shot.rgb)
+
+                        if not out_w:
+                            if img.width > max_width:
+                                ratio = max_width / img.width
+                                out_w = max_width
+                                out_h = int(img.height * ratio)
+                            else:
+                                out_w, out_h = img.width, img.height
+                            out_w -= out_w % 2
+                            out_h -= out_h % 2
+
+                        if img.width != out_w or img.height != out_h:
+                            img = img.resize((out_w, out_h), Image.LANCZOS)
+
+                        frames.append(np.array(img, dtype=np.uint8))
+
+                        sleep = max(0.0, frame_interval - (time.time() - t0))
+                        if sleep:
+                            time.sleep(sleep)
         except Exception as exc:
             print(f"[agent] erro ao capturar frames: {exc}")
             return None
@@ -832,6 +859,20 @@ class Agent:
             print(f"[agent] screenshot: captura retornou None para '{capture_app}'")
             return
 
+        # Descarta imagens uniformes (wallpaper/desktop capturado por engano)
+        try:
+            raw_bytes = base64.b64decode(shot["image_base64"])
+            img_check = self.screenshot._image_mod.open(io.BytesIO(raw_bytes)).convert("L")
+            w_c, h_c = img_check.size
+            samples = [img_check.getpixel((int(w_c * fx), int(h_c * fy)))
+                       for fx in (0.2, 0.5, 0.8) for fy in (0.2, 0.5, 0.8)]
+            variance = sum((s - sum(samples) / len(samples)) ** 2 for s in samples) / len(samples)
+            if variance < 64:  # desvio padrao < 8 => imagem quase uniforme
+                print("[agent] screenshot descartado: imagem uniforme (possivel wallpaper).")
+                return
+        except Exception:
+            pass
+
         payload = {
             "device_id": self.device_id,
             "user_id": self.cfg.user_id,
@@ -874,13 +915,19 @@ class Agent:
         if not url_domain:
             url_domain = self.domain.detect_domain(capture_app, current_title)
 
-        # Detecta o monitor correto aqui no thread principal (evita chamadas Quartz
-        # concorrentes com a thread de screenshot)
+        # Detecta bounds da janela ativa aqui no thread principal (evita chamadas Quartz
+        # concorrentes com a thread de screenshot). Usa a mesma abordagem dos screenshots:
+        # bounds da janela especifica via Quartz, captura composta via mss.
         active_monitor: Optional[Dict[str, Any]] = None
         if self.os_name == "windows":
             active_monitor = self.screenshot._get_active_monitor_windows()
         elif self.os_name == "darwin" and capture_app:
-            active_monitor = self.screenshot._get_active_monitor_macos(capture_app.strip().lower())
+            app_lower = capture_app.strip().lower()
+            window_id = self.screenshot._find_macos_window_id(app_lower, current_title)
+            if window_id:
+                active_monitor = self.screenshot._get_macos_window_bounds(window_id)
+            if not active_monitor:
+                active_monitor = self.screenshot._get_active_monitor_macos(app_lower)
 
         snap_event = dict(event)
         snap_event["app_name"] = capture_app
