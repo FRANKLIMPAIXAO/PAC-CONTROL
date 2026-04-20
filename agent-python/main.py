@@ -588,8 +588,10 @@ class ScreenshotCapture:
 class ScreenRecorder:
     """Captura video curto da tela e envia para a API."""
 
-    def __init__(self, cfg: AgentConfig) -> None:
+    def __init__(self, cfg: AgentConfig, screenshot_capture: "ScreenshotCapture") -> None:
         self.cfg = cfg
+        self.screenshot = screenshot_capture
+        self.system = platform.system().lower()
         self._warned = False
 
     def _lazy_deps(self) -> bool:
@@ -605,7 +607,7 @@ class ScreenRecorder:
                 self._warned = True
             return False
 
-    def record_clip(self) -> Optional[Dict[str, Any]]:
+    def record_clip(self, app_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Captura frames, codifica para MP4 e retorna dict com video_base64 e metadados."""
         if not self._lazy_deps():
             return None
@@ -626,7 +628,15 @@ class ScreenRecorder:
 
         try:
             with mss_lib.mss() as sct:
-                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                # Detecta o monitor onde esta a janela ativa (mesma logica do screenshot)
+                monitor = None
+                if self.system == "windows":
+                    monitor = self.screenshot._get_active_monitor_windows()
+                elif self.system == "darwin" and app_name:
+                    monitor = self.screenshot._get_active_monitor_macos(app_name.strip().lower())
+                if not monitor:
+                    monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+
                 while time.time() < deadline:
                     t0 = time.time()
                     shot = sct.grab(monitor)
@@ -735,7 +745,7 @@ class Agent:
         self.idle = IdleDetector()
         self.domain = DomainDetector()
         self.screenshot = ScreenshotCapture(cfg)
-        self.recorder = ScreenRecorder(cfg)
+        self.recorder = ScreenRecorder(cfg, self.screenshot)
         self.hostname = socket.gethostname()
         self.os_name = platform.system().lower()
         self.device_id: Optional[str] = None
@@ -854,14 +864,23 @@ class Agent:
         if (now - self.last_recording) < max(60, self.cfg.recording_interval_sec):
             return
 
+        # Captura app/dominio no momento do disparo (antes do clip comecar)
+        current_app, current_title = self.foreground.detect()
+        capture_app = current_app or event.get("app_name")
+        url_domain = event.get("url_domain")
+        if not url_domain:
+            url_domain = self.domain.detect_domain(capture_app, current_title)
+
         snap_event = dict(event)
+        snap_event["app_name"] = capture_app
+        snap_event["url_domain"] = url_domain
         device_id = self.device_id
         self.last_recording = now  # Evita duplo disparo durante a gravacao
 
         def _worker() -> None:
             self._recording_active = True
             try:
-                clip = self.recorder.record_clip()
+                clip = self.recorder.record_clip(app_name=snap_event.get("app_name"))
                 if not clip:
                     return
                 payload = {
