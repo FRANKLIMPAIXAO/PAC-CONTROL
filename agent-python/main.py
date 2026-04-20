@@ -57,6 +57,11 @@ class AgentConfig:
     screenshot_max_width: int = 1600
     screenshot_quality: int = 55
     screenshot_only_when_active: bool = True
+    enable_recordings: bool = False
+    recording_interval_sec: int = 300
+    recording_duration_sec: int = 20
+    recording_fps: int = 3
+    recording_max_width: int = 960
 
 
 def load_config() -> AgentConfig:
@@ -340,6 +345,11 @@ class ScreenshotCapture:
             "dock",
             "control center",
             "spotlight",
+            "desktop",
+            "wallpaper",
+            "notificationcenter",
+            "notification center",
+            "window server",
         }
 
     def _lazy_import(self) -> bool:
@@ -361,14 +371,87 @@ class ScreenshotCapture:
     def capture_base64(self, app_name: Optional[str] = None, window_title: Optional[str] = None) -> Optional[Dict[str, Any]]:
         if self.system == "darwin":
             return self._capture_macos_active_window(app_name, window_title)
-        return self._capture_fullscreen()
+        return self._capture_fullscreen(app_name)
 
-    def _capture_fullscreen(self) -> Optional[Dict[str, Any]]:
+    def _get_active_monitor_windows(self) -> Optional[Dict[str, Any]]:
+        """Retorna o monitor mss onde esta a janela em foco no Windows."""
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            if not hwnd:
+                return None
+            # HMONITOR do monitor que contem a janela em foco
+            MONITOR_DEFAULTTONEAREST = 2
+            hmon = user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+            if not hmon:
+                return None
+            # Obtem retangulo do monitor
+            class RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                             ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [("cbSize", ctypes.c_ulong), ("rcMonitor", RECT),
+                             ("rcWork", RECT), ("dwFlags", ctypes.c_ulong)]
+            info = MONITORINFO()
+            info.cbSize = ctypes.sizeof(MONITORINFO)
+            if not user32.GetMonitorInfoW(hmon, ctypes.byref(info)):
+                return None
+            r = info.rcMonitor
+            return {"top": r.top, "left": r.left,
+                    "width": r.right - r.left, "height": r.bottom - r.top}
+        except Exception:
+            return None
+
+    def _get_active_monitor_macos(self, app_name_lower: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Retorna o monitor mss onde esta a janela em foco no macOS (para fallback fullscreen)."""
+        try:
+            import Quartz  # type: ignore
+            if not app_name_lower:
+                return None
+            windows = Quartz.CGWindowListCopyWindowInfo(
+                Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
+            for w in (windows or []):
+                owner = (w.get("kCGWindowOwnerName") or "").strip().lower()
+                if owner != app_name_lower:
+                    continue
+                if int(w.get("kCGWindowLayer", 99)) != 0:
+                    continue
+                if float(w.get("kCGWindowAlpha", 0)) <= 0:
+                    continue
+                b = w.get("kCGWindowBounds") or {}
+                wx, wy = float(b.get("X", 0)), float(b.get("Y", 0))
+                ww, wh = float(b.get("Width", 0)), float(b.get("Height", 0))
+                if ww * wh < 20000:
+                    continue
+                # Centro da janela — decide qual monitor pertence
+                cx, cy = wx + ww / 2, wy + wh / 2
+                displays = Quartz.CGGetActiveDisplayList(32, None, None)
+                for did in (displays[1] or []):
+                    r = Quartz.CGDisplayBounds(did)
+                    dx, dy = r.origin.x, r.origin.y
+                    dw, dh = r.size.width, r.size.height
+                    if dx <= cx < dx + dw and dy <= cy < dy + dh:
+                        return {"top": int(dy), "left": int(dx),
+                                "width": int(dw), "height": int(dh)}
+        except Exception:
+            pass
+        return None
+
+    def _capture_fullscreen(self, app_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         if not self._lazy_import():
             return None
         try:
             with self._mss.mss() as sct:
-                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                monitor = None
+                # Tenta capturar o monitor onde esta a janela ativa
+                if self.system == "windows":
+                    monitor = self._get_active_monitor_windows()
+                elif self.system == "darwin" and app_name:
+                    monitor = self._get_active_monitor_macos(app_name.strip().lower())
+                # Fallback: monitor primario
+                if not monitor:
+                    monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
                 shot = sct.grab(monitor)
                 image = self._image_mod.frombytes("RGB", shot.size, shot.rgb)
                 return self._encode_image(image)
@@ -388,7 +471,8 @@ class ScreenshotCapture:
 
         window_id = self._find_macos_window_id(app, window_title)
         if not window_id:
-            return None
+            print(f"[agent] janela nao encontrada para '{app}', usando tela cheia.")
+            return self._capture_fullscreen()
 
         if not self._lazy_import():
             return None
@@ -463,17 +547,13 @@ class ScreenshotCapture:
                 if area < 20000:
                     continue
 
-                wname = (window.get("kCGWindowName") or "").strip().lower()
-                if not wname:
-                    # Evita pegar janela sem nome (comum em camadas de background)
-                    continue
-
                 window_id = window.get("kCGWindowNumber")
                 if window_id is None:
                     continue
 
+                wname = (window.get("kCGWindowName") or "").strip().lower()
                 score = area
-                if title_norm and (title_norm in wname or wname in title_norm):
+                if title_norm and wname and (title_norm in wname or wname in title_norm):
                     score += 10_000_000
 
                 if score > best_score:
@@ -503,6 +583,122 @@ class ScreenshotCapture:
             "width": image.width,
             "height": image.height,
         }
+
+
+class ScreenRecorder:
+    """Captura video curto da tela e envia para a API."""
+
+    def __init__(self, cfg: AgentConfig) -> None:
+        self.cfg = cfg
+        self._warned = False
+
+    def _lazy_deps(self) -> bool:
+        try:
+            import imageio  # type: ignore
+            import numpy  # type: ignore
+            import mss  # type: ignore
+            from PIL import Image  # type: ignore
+            return True
+        except ImportError as exc:
+            if not self._warned:
+                print(f"[agent] gravacao desativada: dependencia ausente ({exc}). Instale: imageio[ffmpeg] numpy")
+                self._warned = True
+            return False
+
+    def record_clip(self) -> Optional[Dict[str, Any]]:
+        """Captura frames, codifica para MP4 e retorna dict com video_base64 e metadados."""
+        if not self._lazy_deps():
+            return None
+
+        import imageio.v2 as iio  # type: ignore
+        import numpy as np  # type: ignore
+        import mss as mss_lib  # type: ignore
+        from PIL import Image  # type: ignore
+
+        duration = max(5, min(120, self.cfg.recording_duration_sec))
+        fps = max(1, min(10, self.cfg.recording_fps))
+        max_width = max(320, min(1920, self.cfg.recording_max_width))
+        frame_interval = 1.0 / fps
+
+        frames: list = []
+        out_w = out_h = 0
+        deadline = time.time() + duration
+
+        try:
+            with mss_lib.mss() as sct:
+                monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
+                while time.time() < deadline:
+                    t0 = time.time()
+                    shot = sct.grab(monitor)
+                    img = Image.frombytes("RGB", shot.size, shot.rgb)
+
+                    if not out_w:
+                        if img.width > max_width:
+                            ratio = max_width / img.width
+                            out_w = max_width
+                            out_h = int(img.height * ratio)
+                        else:
+                            out_w, out_h = img.width, img.height
+                        # H264 exige dimensoes pares
+                        out_w -= out_w % 2
+                        out_h -= out_h % 2
+
+                    if img.width != out_w or img.height != out_h:
+                        img = img.resize((out_w, out_h), Image.LANCZOS)
+
+                    frames.append(np.array(img, dtype=np.uint8))
+
+                    sleep = max(0.0, frame_interval - (time.time() - t0))
+                    if sleep:
+                        time.sleep(sleep)
+        except Exception as exc:
+            print(f"[agent] erro ao capturar frames: {exc}")
+            return None
+
+        if not frames:
+            return None
+
+        import tempfile
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+                tmp_path = tf.name
+
+            writer = iio.get_writer(
+                tmp_path,
+                fps=fps,
+                codec="libx264",
+                quality=None,
+                pixelformat="yuv420p",
+                output_params=["-crf", "28", "-preset", "ultrafast"],
+            )
+            for frame in frames:
+                writer.append_data(frame)
+            writer.close()
+
+            with open(tmp_path, "rb") as fh:
+                video_bytes = fh.read()
+
+            encoded = base64.b64encode(video_bytes).decode("ascii")
+            print(f"[agent] clip gravado: {len(frames)} frames, {len(video_bytes) // 1024}KB")
+
+            return {
+                "video_base64": encoded,
+                "mime_type": "video/mp4",
+                "width": out_w,
+                "height": out_h,
+                "duration_sec": duration,
+                "fps": fps,
+            }
+        except Exception as exc:
+            print(f"[agent] erro ao codificar video: {exc}")
+            return None
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
 
 class ApiClient:
@@ -539,6 +735,7 @@ class Agent:
         self.idle = IdleDetector()
         self.domain = DomainDetector()
         self.screenshot = ScreenshotCapture(cfg)
+        self.recorder = ScreenRecorder(cfg)
         self.hostname = socket.gethostname()
         self.os_name = platform.system().lower()
         self.device_id: Optional[str] = None
@@ -547,6 +744,8 @@ class Agent:
         self.last_heartbeat = 0.0
         self.last_flush = 0.0
         self.last_screenshot = 0.0
+        self.last_recording = 0.0
+        self._recording_active = False
 
     def register_device(self) -> None:
         payload = {
@@ -641,6 +840,49 @@ class Agent:
         self.last_screenshot = now
         print("[agent] screenshot enviado.")
 
+    def send_recording_if_due(self, event: Dict[str, Any]) -> None:
+        if not self.cfg.enable_recordings:
+            return
+        if not self.device_id:
+            return
+        if self.cfg.screenshot_only_when_active and bool(event.get("is_idle")):
+            return
+        if self._recording_active:
+            return
+
+        now = time.time()
+        if (now - self.last_recording) < max(60, self.cfg.recording_interval_sec):
+            return
+
+        snap_event = dict(event)
+        device_id = self.device_id
+        self.last_recording = now  # Evita duplo disparo durante a gravacao
+
+        def _worker() -> None:
+            self._recording_active = True
+            try:
+                clip = self.recorder.record_clip()
+                if not clip:
+                    return
+                payload = {
+                    "device_id": device_id,
+                    "user_id": self.cfg.user_id,
+                    "ts": snap_event.get("ts") or utc_now_iso(),
+                    "app_name": snap_event.get("app_name"),
+                    "url_domain": snap_event.get("url_domain"),
+                    "is_idle": bool(snap_event.get("is_idle")),
+                    **clip,
+                }
+                self.client.post("/api/agent/recording", payload)
+                print("[agent] gravacao enviada.")
+            except Exception as exc:
+                print(f"[agent] erro ao enviar gravacao: {exc}")
+            finally:
+                self._recording_active = False
+
+        t = threading.Thread(target=_worker, daemon=True, name="pac-recorder")
+        t.start()
+
     def flush_if_due(self, force: bool = False) -> None:
         if not self.device_id:
             return
@@ -676,6 +918,7 @@ class Agent:
                 self.enqueue_event(event)
                 self.send_heartbeat_if_due(bool(event.get("is_idle")))
                 self.send_screenshot_if_due(event)
+                self.send_recording_if_due(event)
                 self.flush_if_due(force=False)
             except Exception as exc:
                 print(f"[agent] erro no ciclo: {exc}")
@@ -690,7 +933,24 @@ class Agent:
 
 
 
+def _setup_file_logging() -> None:
+    """No Windows sem terminal visivel, redireciona stdout/stderr para arquivo de log."""
+    if platform.system().lower() != "windows":
+        return
+    config_path = os.getenv("PAC_AGENT_CONFIG", "config.json")
+    log_dir = os.path.dirname(os.path.abspath(config_path))
+    log_path = os.path.join(log_dir, "agent.log")
+    try:
+        import sys
+        log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+        sys.stdout = log_file
+        sys.stderr = log_file
+    except Exception:
+        pass  # Sem permissao de escrita — segue sem log em arquivo
+
+
 def main() -> None:
+    _setup_file_logging()
     cfg = load_config()
     agent = Agent(cfg)
 
