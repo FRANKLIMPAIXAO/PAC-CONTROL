@@ -487,7 +487,8 @@ class ScreenshotCapture:
                 Quartz.kCGWindowImageBoundsIgnoreFraming | Quartz.kCGWindowImageNominalResolution,
             )
             if not img_ref:
-                return None
+                # Quartz nao conseguiu capturar a janela — usa tela cheia como fallback
+                return self._capture_fullscreen(app_name)
 
             width = Quartz.CGImageGetWidth(img_ref)
             height = Quartz.CGImageGetHeight(img_ref)
@@ -588,10 +589,8 @@ class ScreenshotCapture:
 class ScreenRecorder:
     """Captura video curto da tela e envia para a API."""
 
-    def __init__(self, cfg: AgentConfig, screenshot_capture: "ScreenshotCapture") -> None:
+    def __init__(self, cfg: AgentConfig) -> None:
         self.cfg = cfg
-        self.screenshot = screenshot_capture
-        self.system = platform.system().lower()
         self._warned = False
 
     def _lazy_deps(self) -> bool:
@@ -607,8 +606,11 @@ class ScreenRecorder:
                 self._warned = True
             return False
 
-    def record_clip(self, app_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Captura frames, codifica para MP4 e retorna dict com video_base64 e metadados."""
+    def record_clip(self, monitor: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Captura frames, codifica para MP4 e retorna dict com video_base64 e metadados.
+
+        monitor: bounds ja detectados no thread principal (evita chamadas Quartz concorrentes).
+        """
         if not self._lazy_deps():
             return None
 
@@ -628,12 +630,7 @@ class ScreenRecorder:
 
         try:
             with mss_lib.mss() as sct:
-                # Detecta o monitor onde esta a janela ativa (mesma logica do screenshot)
-                monitor = None
-                if self.system == "windows":
-                    monitor = self.screenshot._get_active_monitor_windows()
-                elif self.system == "darwin" and app_name:
-                    monitor = self.screenshot._get_active_monitor_macos(app_name.strip().lower())
+                # Monitor ja foi detectado no thread principal — sem Quartz aqui
                 if not monitor:
                     monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
 
@@ -745,7 +742,7 @@ class Agent:
         self.idle = IdleDetector()
         self.domain = DomainDetector()
         self.screenshot = ScreenshotCapture(cfg)
-        self.recorder = ScreenRecorder(cfg, self.screenshot)
+        self.recorder = ScreenRecorder(cfg)
         self.hostname = socket.gethostname()
         self.os_name = platform.system().lower()
         self.device_id: Optional[str] = None
@@ -832,6 +829,7 @@ class Agent:
 
         shot = self.screenshot.capture_base64(capture_app, capture_title)
         if not shot:
+            print(f"[agent] screenshot: captura retornou None para '{capture_app}'")
             return
 
         payload = {
@@ -864,12 +862,25 @@ class Agent:
         if (now - self.last_recording) < max(60, self.cfg.recording_interval_sec):
             return
 
-        # Captura app/dominio no momento do disparo (antes do clip comecar)
+        # Tudo que usa Quartz/osascript deve rodar aqui (thread principal)
         current_app, current_title = self.foreground.detect()
         capture_app = current_app or event.get("app_name")
+
+        # Pula se o app ativo for sistema/desktop
+        if (capture_app or "").strip().lower() in self.screenshot._skip_apps:
+            return
+
         url_domain = event.get("url_domain")
         if not url_domain:
             url_domain = self.domain.detect_domain(capture_app, current_title)
+
+        # Detecta o monitor correto aqui no thread principal (evita chamadas Quartz
+        # concorrentes com a thread de screenshot)
+        active_monitor: Optional[Dict[str, Any]] = None
+        if self.os_name == "windows":
+            active_monitor = self.screenshot._get_active_monitor_windows()
+        elif self.os_name == "darwin" and capture_app:
+            active_monitor = self.screenshot._get_active_monitor_macos(capture_app.strip().lower())
 
         snap_event = dict(event)
         snap_event["app_name"] = capture_app
@@ -880,7 +891,7 @@ class Agent:
         def _worker() -> None:
             self._recording_active = True
             try:
-                clip = self.recorder.record_clip(app_name=snap_event.get("app_name"))
+                clip = self.recorder.record_clip(monitor=active_monitor)
                 if not clip:
                     return
                 payload = {
