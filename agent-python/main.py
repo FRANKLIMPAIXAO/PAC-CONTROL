@@ -913,20 +913,6 @@ class Agent:
             print(f"[agent] screenshot: captura retornou None para '{capture_app}'")
             return
 
-        # Descarta imagens uniformes (wallpaper/desktop capturado por engano)
-        try:
-            raw_bytes = base64.b64decode(shot["image_base64"])
-            img_check = self.screenshot._image_mod.open(io.BytesIO(raw_bytes)).convert("L")
-            w_c, h_c = img_check.size
-            samples = [img_check.getpixel((int(w_c * fx), int(h_c * fy)))
-                       for fx in (0.2, 0.5, 0.8) for fy in (0.2, 0.5, 0.8)]
-            variance = sum((s - sum(samples) / len(samples)) ** 2 for s in samples) / len(samples)
-            if variance < 64:  # desvio padrao < 8 => imagem quase uniforme
-                print("[agent] screenshot descartado: imagem uniforme (possivel wallpaper).")
-                return
-        except Exception:
-            pass
-
         payload = {
             "device_id": self.device_id,
             "user_id": self.cfg.user_id,
