@@ -20,26 +20,24 @@ export async function GET() {
       ORDER BY app_or_domain
     `,
     sql`
-      SELECT LOWER(app_name) AS name, COUNT(*) AS total
+      SELECT LOWER(er.app_name) AS name, COUNT(*) AS total
       FROM events_raw er
-      JOIN devices d ON d.id = er.device_id
-      JOIN users u ON u.id = d.user_id
+      JOIN users u ON u.id = er.user_id
       WHERE u.company_id = ${session.company_id}
         AND er.app_name IS NOT NULL AND er.app_name <> ''
         AND er.ts >= NOW() - INTERVAL '30 days'
-      GROUP BY LOWER(app_name)
+      GROUP BY LOWER(er.app_name)
       ORDER BY total DESC
       LIMIT 40
     `,
     sql`
-      SELECT LOWER(url_domain) AS name, COUNT(*) AS total
+      SELECT LOWER(er.url_domain) AS name, COUNT(*) AS total
       FROM events_raw er
-      JOIN devices d ON d.id = er.device_id
-      JOIN users u ON u.id = d.user_id
+      JOIN users u ON u.id = er.user_id
       WHERE u.company_id = ${session.company_id}
         AND er.url_domain IS NOT NULL AND er.url_domain <> ''
         AND er.ts >= NOW() - INTERVAL '30 days'
-      GROUP BY LOWER(url_domain)
+      GROUP BY LOWER(er.url_domain)
       ORDER BY total DESC
       LIMIT 40
     `,
