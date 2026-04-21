@@ -706,8 +706,9 @@ class ScreenRecorder:
                             out_h = int(img.height * ratio)
                         else:
                             out_w, out_h = img.width, img.height
-                        out_w -= out_w % 2
-                        out_h -= out_h % 2
+                        # Alinha para multiplo de 16 (exigido pelo codec H.264)
+                        out_w = (out_w + 15) // 16 * 16
+                        out_h = (out_h + 15) // 16 * 16
 
                     if img.width != out_w or img.height != out_h:
                         img = img.resize((out_w, out_h), Image.LANCZOS)
@@ -734,8 +735,8 @@ class ScreenRecorder:
                                 out_h = int(img.height * ratio)
                             else:
                                 out_w, out_h = img.width, img.height
-                            out_w -= out_w % 2
-                            out_h -= out_h % 2
+                            out_w = (out_w + 15) // 16 * 16
+                            out_h = (out_h + 15) // 16 * 16
 
                         if img.width != out_w or img.height != out_h:
                             img = img.resize((out_w, out_h), Image.LANCZOS)
