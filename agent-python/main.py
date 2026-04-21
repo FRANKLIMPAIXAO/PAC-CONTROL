@@ -439,17 +439,20 @@ class ScreenshotCapture:
         return None
 
     def _capture_fullscreen(self, app_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # macOS: screencapture e mais confiavel que mss para captura composta
+        if self.system == "darwin":
+            region = None
+            if app_name:
+                region = self._get_active_monitor_macos(app_name.strip().lower())
+            return self._capture_via_screencapture(region=region)
+
         if not self._lazy_import():
             return None
         try:
             with self._mss.mss() as sct:
                 monitor = None
-                # Tenta capturar o monitor onde esta a janela ativa
                 if self.system == "windows":
                     monitor = self._get_active_monitor_windows()
-                elif self.system == "darwin" and app_name:
-                    monitor = self._get_active_monitor_macos(app_name.strip().lower())
-                # Fallback: monitor primario
                 if not monitor:
                     monitor = sct.monitors[1] if len(sct.monitors) > 1 else sct.monitors[0]
                 shot = sct.grab(monitor)
@@ -472,25 +475,55 @@ class ScreenshotCapture:
         window_id = self._find_macos_window_id(app, window_title)
         if not window_id:
             print(f"[agent] janela nao encontrada para '{app}', usando tela cheia.")
-            return self._capture_fullscreen()
+            return self._capture_via_screencapture()
 
+        result = self._capture_via_screencapture(window_id=window_id)
+        if result:
+            return result
+        # fallback: regiao da janela ou tela cheia
         bounds = self._get_macos_window_bounds(window_id)
-        if not bounds:
-            return self._capture_fullscreen(app_name)
+        return self._capture_via_screencapture(region=bounds)
 
+    def _capture_via_screencapture(
+        self,
+        window_id: Optional[int] = None,
+        region: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Captura via screencapture (macOS). Usa -l <id> para janela especifica ou -R para regiao."""
         if not self._lazy_import():
             return None
-
+        import subprocess
+        import tempfile
+        tmp_path = None
         try:
-            with self._mss.mss() as sct:
-                shot = sct.grab(bounds)
-                image = self._image_mod.frombytes("RGB", shot.size, shot.rgb)
-                return self._encode_image(image)
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+                tmp_path = tf.name
+            args = ["screencapture", "-x"]
+            if window_id:
+                args += ["-l", str(window_id)]
+            elif region:
+                x = region["left"]
+                y = region["top"]
+                w = region["width"]
+                h = region["height"]
+                args += ["-R", f"{x},{y},{w},{h}"]
+            args.append(tmp_path)
+            res = subprocess.run(args, capture_output=True, timeout=10)
+            if res.returncode != 0:
+                return None
+            image = self._image_mod.open(tmp_path).convert("RGB")
+            return self._encode_image(image)
         except Exception:
             if not self._warned:
-                print("[agent] aviso: falha ao capturar area da janela.")
+                print("[agent] aviso: falha ao capturar via screencapture.")
                 self._warned = True
             return None
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
     def _find_macos_window_id(self, app_name_lower: str, window_title: Optional[str]) -> Optional[int]:
         try:
