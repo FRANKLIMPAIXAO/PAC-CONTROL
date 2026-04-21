@@ -661,10 +661,9 @@ class ScreenRecorder:
             if self.system == "darwin":
                 import subprocess
                 import tempfile
-                # Detecta bounds da janela para crop apos captura full-screen
+                # screencapture -R x,y,w,h usa coordenadas logicas (mesmas do Quartz)
                 # screencapture -l <window_id> falha em background threads do LaunchAgent
-                # screencapture -x (full screen) e sempre confiavel
-                crop_box = None
+                region_args: list = []
                 if window_id:
                     try:
                         import Quartz  # type: ignore
@@ -673,17 +672,20 @@ class ScreenRecorder:
                         for w in (wins or []):
                             if int(w.get("kCGWindowNumber", -1)) == window_id:
                                 b = w.get("kCGWindowBounds") or {}
-                                x, y = int(b.get("X", 0)), int(b.get("Y", 0))
-                                ww, wh = int(b.get("Width", 0)), int(b.get("Height", 0))
+                                wx = int(b.get("X", 0))
+                                wy = int(b.get("Y", 0))
+                                ww = int(b.get("Width", 0))
+                                wh = int(b.get("Height", 0))
                                 if ww > 10 and wh > 10:
-                                    crop_box = (x, y, x + ww, y + wh)
+                                    region_args = ["-R", f"{wx},{wy},{ww},{wh}"]
                                 break
                     except Exception:
                         pass
                 elif monitor:
-                    x, y = monitor["left"], monitor["top"]
-                    ww, wh = monitor["width"], monitor["height"]
-                    crop_box = (x, y, x + ww, y + wh)
+                    region_args = ["-R", "{},{},{},{}".format(
+                        monitor["left"], monitor["top"],
+                        monitor["width"], monitor["height"])]
+                print(f"[agent] rec region_args={region_args} window_id={window_id}")
 
                 while time.time() < deadline:
                     t0 = time.time()
@@ -692,16 +694,11 @@ class ScreenRecorder:
                         tmp_frame = tf.name
                     try:
                         result = subprocess.run(
-                            ["screencapture", "-x", tmp_frame],
+                            ["screencapture", "-x"] + region_args + [tmp_frame],
                             capture_output=True, timeout=10,
                         )
                         if result.returncode == 0:
                             img = Image.open(tmp_frame).convert("RGB")
-                            if crop_box:
-                                try:
-                                    img = img.crop(crop_box)
-                                except Exception:
-                                    pass
                     except Exception:
                         pass
                     finally:
