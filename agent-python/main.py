@@ -633,10 +633,12 @@ class ScreenRecorder:
                 self._warned = True
             return False
 
-    def record_clip(self, monitor: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    def record_clip(self, monitor: Optional[Dict[str, Any]] = None, window_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Captura frames, codifica para MP4 e retorna dict com video_base64 e metadados.
 
-        monitor: bounds ja detectados no thread principal (evita chamadas Quartz concorrentes).
+        window_id: ID da janela Quartz (macOS) — usa screencapture -l para capturar a janela
+                   especifica independente de z-order.
+        monitor: bounds para fallback com -R ou para mss (Windows/Linux).
         """
         if not self._lazy_deps():
             return None
@@ -659,13 +661,17 @@ class ScreenRecorder:
             if self.system == "darwin":
                 import subprocess
                 import tempfile
-                region_args: list = []
-                if monitor:
+                # Prefere -l <window_id> (janela especifica) sobre -R (regiao de tela)
+                if window_id:
+                    sc_extra_args = ["-l", str(window_id)]
+                elif monitor:
                     x = monitor["left"]
                     y = monitor["top"]
                     w = monitor["width"]
                     h = monitor["height"]
-                    region_args = ["-R", f"{x},{y},{w},{h}"]
+                    sc_extra_args = ["-R", f"{x},{y},{w},{h}"]
+                else:
+                    sc_extra_args = []
 
                 while time.time() < deadline:
                     t0 = time.time()
@@ -674,7 +680,7 @@ class ScreenRecorder:
                         tmp_frame = tf.name
                     try:
                         result = subprocess.run(
-                            ["screencapture", "-x"] + region_args + [tmp_frame],
+                            ["screencapture", "-x"] + sc_extra_args + [tmp_frame],
                             capture_output=True, timeout=4,
                         )
                         if result.returncode == 0:
@@ -955,18 +961,15 @@ class Agent:
         if not url_domain:
             url_domain = self.domain.detect_domain(capture_app, current_title)
 
-        # Detecta bounds da janela ativa aqui no thread principal (evita chamadas Quartz
-        # concorrentes com a thread de screenshot). Usa a mesma abordagem dos screenshots:
-        # bounds da janela especifica via Quartz, captura composta via mss.
+        # Detecta janela ativa no thread principal (Quartz nao e thread-safe)
+        active_window_id: Optional[int] = None
         active_monitor: Optional[Dict[str, Any]] = None
         if self.os_name == "windows":
             active_monitor = self.screenshot._get_active_monitor_windows()
         elif self.os_name == "darwin" and capture_app:
             app_lower = capture_app.strip().lower()
-            window_id = self.screenshot._find_macos_window_id(app_lower, current_title)
-            if window_id:
-                active_monitor = self.screenshot._get_macos_window_bounds(window_id)
-            if not active_monitor:
+            active_window_id = self.screenshot._find_macos_window_id(app_lower, current_title)
+            if not active_window_id:
                 active_monitor = self.screenshot._get_active_monitor_macos(app_lower)
 
         snap_event = dict(event)
@@ -978,7 +981,7 @@ class Agent:
         def _worker() -> None:
             self._recording_active = True
             try:
-                clip = self.recorder.record_clip(monitor=active_monitor)
+                clip = self.recorder.record_clip(monitor=active_monitor, window_id=active_window_id)
                 if not clip:
                     return
                 payload = {
