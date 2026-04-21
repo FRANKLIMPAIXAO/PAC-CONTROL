@@ -8,6 +8,7 @@ const TABS = [
   { href: '/configuracoes/times',         label: 'Times' },
   { href: '/configuracoes/colaboradores', label: 'Colaboradores' },
   { href: '/configuracoes/metas',         label: 'Metas' },
+  { href: '/configuracoes/produtividade', label: 'Produtividade' },
 ];
 
 export default function ConfiguracoesLayout({ children }) {

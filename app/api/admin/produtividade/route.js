@@ -1,0 +1,101 @@
+import { NextResponse } from 'next/server';
+import sql from '@/lib/db';
+import { getCurrentSession } from '@/lib/auth-server';
+
+async function getSession() {
+  const session = await getCurrentSession();
+  if (!session || !['admin', 'gestor'].includes(session.role)) return null;
+  return session;
+}
+
+export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
+
+  const [classifications, rawApps, rawDomains] = await Promise.all([
+    sql`
+      SELECT id, app_or_domain, category
+      FROM app_classification
+      WHERE company_id = ${session.company_id}
+      ORDER BY app_or_domain
+    `,
+    sql`
+      SELECT LOWER(app_name) AS name, COUNT(*) AS total
+      FROM events_raw er
+      JOIN devices d ON d.id = er.device_id
+      JOIN users u ON u.id = d.user_id
+      WHERE u.company_id = ${session.company_id}
+        AND er.app_name IS NOT NULL AND er.app_name <> ''
+        AND er.ts >= NOW() - INTERVAL '30 days'
+      GROUP BY LOWER(app_name)
+      ORDER BY total DESC
+      LIMIT 40
+    `,
+    sql`
+      SELECT LOWER(url_domain) AS name, COUNT(*) AS total
+      FROM events_raw er
+      JOIN devices d ON d.id = er.device_id
+      JOIN users u ON u.id = d.user_id
+      WHERE u.company_id = ${session.company_id}
+        AND er.url_domain IS NOT NULL AND er.url_domain <> ''
+        AND er.ts >= NOW() - INTERVAL '30 days'
+      GROUP BY LOWER(url_domain)
+      ORDER BY total DESC
+      LIMIT 40
+    `,
+  ]);
+
+  const classifiedSet = new Set(classifications.map(c => c.app_or_domain.toLowerCase()));
+
+  const suggestions = [
+    ...rawApps.filter(r => !classifiedSet.has(r.name)).map(r => ({ name: r.name, type: 'app' })),
+    ...rawDomains.filter(r => !classifiedSet.has(r.name)).map(r => ({ name: r.name, type: 'site' })),
+  ];
+
+  return NextResponse.json({ classifications, suggestions });
+}
+
+export async function POST(req) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
+
+  const body = await req.json();
+  const { upserts = [], deleted_ids = [] } = body;
+
+  const validCategories = new Set(['productive', 'neutral', 'unproductive']);
+  for (const u of upserts) {
+    if (!u.app_or_domain || typeof u.app_or_domain !== 'string') {
+      return NextResponse.json({ error: 'app_or_domain invalido' }, { status: 400 });
+    }
+    if (!validCategories.has(u.category)) {
+      return NextResponse.json({ error: `Categoria invalida: ${u.category}` }, { status: 400 });
+    }
+  }
+
+  if (deleted_ids.length > 0) {
+    await sql`
+      DELETE FROM app_classification
+      WHERE id = ANY(${deleted_ids}::uuid[])
+        AND company_id = ${session.company_id}
+    `;
+  }
+
+  for (const u of upserts) {
+    const name = u.app_or_domain.trim().toLowerCase();
+    if (u.id) {
+      await sql`
+        UPDATE app_classification
+        SET category = ${u.category}, app_or_domain = ${name}
+        WHERE id = ${u.id} AND company_id = ${session.company_id}
+      `;
+    } else {
+      await sql`
+        INSERT INTO app_classification (company_id, app_or_domain, category, score)
+        VALUES (${session.company_id}, ${name}, ${u.category}, ${u.category === 'productive' ? 100 : u.category === 'unproductive' ? 0 : 50})
+        ON CONFLICT (company_id, app_or_domain) DO UPDATE SET category = EXCLUDED.category, score = EXCLUDED.score
+      `;
+    }
+  }
+
+  return NextResponse.json({ ok: true });
+}
