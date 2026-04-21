@@ -74,10 +74,17 @@ launchctl kickstart -k gui/$(id -u)/com.paccontrol.agent
 ```
 
 ## Permissoes no macOS para screenshots
-Para capturar tela no macOS:
+Para capturar tela no macOS, o binario Python (que o launchd executa) precisa ter
+permissao de Gravacao de Tela. Sem ela, mss/Quartz/screencapture retornam apenas
+o wallpaper sem erro algum (falha silenciosa).
+
 1. Ajustes do Sistema -> Privacidade e Seguranca -> Gravacao de Tela
-2. Permitir `PACControlAgent`
-3. Reiniciar o agente:
+2. Clicar em `+`, pressionar `Cmd+Shift+G` e colar:
+   ```
+   /Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app
+   ```
+3. Adicionar e ligar o toggle ao lado de "Python"
+4. Reiniciar o agente:
 ```bash
 launchctl kickstart -k gui/$(id -u)/com.paccontrol.agent
 ```
