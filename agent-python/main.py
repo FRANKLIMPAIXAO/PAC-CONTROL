@@ -661,17 +661,29 @@ class ScreenRecorder:
             if self.system == "darwin":
                 import subprocess
                 import tempfile
-                # Prefere -l <window_id> (janela especifica) sobre -R (regiao de tela)
+                # Detecta bounds da janela para crop apos captura full-screen
+                # screencapture -l <window_id> falha em background threads do LaunchAgent
+                # screencapture -x (full screen) e sempre confiavel
+                crop_box = None
                 if window_id:
-                    sc_extra_args = ["-l", str(window_id)]
+                    try:
+                        import Quartz  # type: ignore
+                        wins = Quartz.CGWindowListCopyWindowInfo(
+                            Quartz.kCGWindowListOptionIncludingWindow, window_id)
+                        for w in (wins or []):
+                            if int(w.get("kCGWindowNumber", -1)) == window_id:
+                                b = w.get("kCGWindowBounds") or {}
+                                x, y = int(b.get("X", 0)), int(b.get("Y", 0))
+                                ww, wh = int(b.get("Width", 0)), int(b.get("Height", 0))
+                                if ww > 10 and wh > 10:
+                                    crop_box = (x, y, x + ww, y + wh)
+                                break
+                    except Exception:
+                        pass
                 elif monitor:
-                    x = monitor["left"]
-                    y = monitor["top"]
-                    w = monitor["width"]
-                    h = monitor["height"]
-                    sc_extra_args = ["-R", f"{x},{y},{w},{h}"]
-                else:
-                    sc_extra_args = []
+                    x, y = monitor["left"], monitor["top"]
+                    ww, wh = monitor["width"], monitor["height"]
+                    crop_box = (x, y, x + ww, y + wh)
 
                 while time.time() < deadline:
                     t0 = time.time()
@@ -680,11 +692,16 @@ class ScreenRecorder:
                         tmp_frame = tf.name
                     try:
                         result = subprocess.run(
-                            ["screencapture", "-x"] + sc_extra_args + [tmp_frame],
-                            capture_output=True, timeout=4,
+                            ["screencapture", "-x", tmp_frame],
+                            capture_output=True, timeout=10,
                         )
                         if result.returncode == 0:
                             img = Image.open(tmp_frame).convert("RGB")
+                            if crop_box:
+                                try:
+                                    img = img.crop(crop_box)
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
                     finally:
@@ -751,6 +768,7 @@ class ScreenRecorder:
             return None
 
         if not frames:
+            print(f"[agent] gravacao: nenhum frame capturado (window_id={window_id})")
             return None
 
         import tempfile
@@ -972,6 +990,7 @@ class Agent:
             active_window_id = self.screenshot._find_macos_window_id(app_lower, current_title)
             if not active_window_id:
                 active_monitor = self.screenshot._get_active_monitor_macos(app_lower)
+        print(f"[agent] gravacao: app={capture_app!r} window_id={active_window_id} monitor={active_monitor}")
 
         snap_event = dict(event)
         snap_event["app_name"] = capture_app
@@ -984,6 +1003,7 @@ class Agent:
             try:
                 clip = self.recorder.record_clip(monitor=active_monitor, window_id=active_window_id)
                 if not clip:
+                    print(f"[agent] gravacao: clip vazio (app={capture_app!r} window_id={active_window_id})")
                     return
                 payload = {
                     "device_id": device_id,
