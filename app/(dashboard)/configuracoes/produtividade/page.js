@@ -44,12 +44,16 @@ export default function ProdutividadePage() {
 
   useEffect(() => {
     fetch('/api/admin/produtividade')
-      .then(r => r.json())
+      .then(async r => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        return d;
+      })
       .then(d => {
         setClassifications(d.classifications || []);
         setSuggestions(d.suggestions || []);
       })
-      .catch(() => setMsg({ type: 'error', text: 'Erro ao carregar configuracoes.' }))
+      .catch(err => setMsg({ type: 'error', text: `Erro: ${err.message}` }))
       .finally(() => setLoading(false));
   }, []);
 

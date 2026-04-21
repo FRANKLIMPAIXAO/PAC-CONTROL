@@ -12,45 +12,54 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
 
-  const [classifications, rawApps, rawDomains] = await Promise.all([
-    sql`
-      SELECT id, app_or_domain, category
-      FROM app_classification
-      WHERE company_id = ${session.company_id}
-      ORDER BY app_or_domain
-    `,
-    sql`
-      SELECT LOWER(er.app_name) AS name, COUNT(*) AS total
-      FROM events_raw er
-      JOIN users u ON u.id = er.user_id
-      WHERE u.company_id = ${session.company_id}
-        AND er.app_name IS NOT NULL AND er.app_name <> ''
-        AND er.ts >= NOW() - INTERVAL '30 days'
-      GROUP BY LOWER(er.app_name)
-      ORDER BY total DESC
-      LIMIT 40
-    `,
-    sql`
-      SELECT LOWER(er.url_domain) AS name, COUNT(*) AS total
-      FROM events_raw er
-      JOIN users u ON u.id = er.user_id
-      WHERE u.company_id = ${session.company_id}
-        AND er.url_domain IS NOT NULL AND er.url_domain <> ''
-        AND er.ts >= NOW() - INTERVAL '30 days'
-      GROUP BY LOWER(er.url_domain)
-      ORDER BY total DESC
-      LIMIT 40
-    `,
-  ]);
+  try {
+    // Busca company_id real do banco (session pode ter valor do JWT)
+    const [userRow] = await sql`SELECT company_id FROM users WHERE id = ${session.sub} LIMIT 1`;
+    const companyId = userRow?.company_id || session.company_id;
 
-  const classifiedSet = new Set(classifications.map(c => c.app_or_domain.toLowerCase()));
+    const [classifications, rawApps, rawDomains] = await Promise.all([
+      sql`
+        SELECT id, app_or_domain, category
+        FROM app_classification
+        WHERE company_id = ${companyId}
+        ORDER BY app_or_domain
+      `,
+      sql`
+        SELECT LOWER(er.app_name) AS name, COUNT(*) AS total
+        FROM events_raw er
+        JOIN users u ON u.id = er.user_id
+        WHERE u.company_id = ${companyId}
+          AND er.app_name IS NOT NULL AND er.app_name <> ''
+          AND er.ts >= NOW() - INTERVAL '30 days'
+        GROUP BY LOWER(er.app_name)
+        ORDER BY total DESC
+        LIMIT 40
+      `,
+      sql`
+        SELECT LOWER(er.url_domain) AS name, COUNT(*) AS total
+        FROM events_raw er
+        JOIN users u ON u.id = er.user_id
+        WHERE u.company_id = ${companyId}
+          AND er.url_domain IS NOT NULL AND er.url_domain <> ''
+          AND er.ts >= NOW() - INTERVAL '30 days'
+        GROUP BY LOWER(er.url_domain)
+        ORDER BY total DESC
+        LIMIT 40
+      `,
+    ]);
 
-  const suggestions = [
-    ...rawApps.filter(r => !classifiedSet.has(r.name)).map(r => ({ name: r.name, type: 'app' })),
-    ...rawDomains.filter(r => !classifiedSet.has(r.name)).map(r => ({ name: r.name, type: 'site' })),
-  ];
+    const classifiedSet = new Set(classifications.map(c => c.app_or_domain.toLowerCase()));
 
-  return NextResponse.json({ classifications, suggestions });
+    const suggestions = [
+      ...rawApps.filter(r => !classifiedSet.has(r.name)).map(r => ({ name: r.name, type: 'app' })),
+      ...rawDomains.filter(r => !classifiedSet.has(r.name)).map(r => ({ name: r.name, type: 'site' })),
+    ];
+
+    return NextResponse.json({ classifications, suggestions });
+  } catch (err) {
+    console.error('[produtividade GET]', err);
+    return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 });
+  }
 }
 
 export async function POST(req) {
