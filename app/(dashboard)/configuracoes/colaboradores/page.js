@@ -285,13 +285,27 @@ export default function ColaboradoresPage() {
                 )}
 
                 {modal.mode === 'edit' && (
-                  <div>
-                    <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Status</label>
-                    <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={{ width: '100%' }}>
-                      <option value="active">Ativo</option>
-                      <option value="inactive">Inativo</option>
-                    </select>
-                  </div>
+                  <>
+                    <div>
+                      <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Status</label>
+                      <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={{ width: '100%' }}>
+                        <option value="active">Ativo</option>
+                        <option value="inactive">Inativo</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6, marginTop: 12 }}>User ID (Copiar para o Agente)</label>
+                      <input 
+                        readOnly 
+                        value={modal.user?.id || ''} 
+                        style={{ width: '100%', background: '#f3f4f6', cursor: 'pointer', fontFamily: 'monospace' }} 
+                        onClick={(e) => {
+                          navigator.clipboard.writeText(e.target.value);
+                          alert('User ID copiado!');
+                        }}
+                      />
+                    </div>
+                  </>
                 )}
               </div>
             )}
