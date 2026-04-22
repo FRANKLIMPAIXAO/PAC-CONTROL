@@ -45,6 +45,10 @@ param(
     [int]$ScreenshotIntervalSec   = 60,
     [int]$ScreenshotMaxWidth      = 1600,
     [int]$ScreenshotQuality       = 55,
+    [int]$RecordingIntervalSec    = 120,
+    [int]$RecordingDurationSec    = 20,
+    [int]$RecordingFps            = 3,
+    [int]$RecordingMaxWidth       = 960,
     [switch]$Uninstall
 )
 
@@ -164,7 +168,7 @@ Write-Log "main.py copiado para $AgentDir\main.py"
 
 # ─── INSTALA DEPENDENCIAS ─────────────────────────────────────────────────────
 Write-Log "Instalando dependencias Python..."
-$deps = @("requests>=2.32", "psutil>=6.1", "pynput>=1.7", "mss>=9.0", "Pillow>=10.4")
+$deps = @("requests>=2.32", "psutil>=6.1", "pynput>=1.7", "mss>=9.0", "Pillow>=10.4", "imageio[ffmpeg]>=2.34", "numpy>=1.26")
 foreach ($dep in $deps) {
     Write-Log "  pip install $dep"
     & $PythonExe -m pip install --quiet --upgrade $dep
@@ -177,22 +181,27 @@ Write-Log "Dependencias instaladas."
 # ─── CRIA config.json ─────────────────────────────────────────────────────────
 Write-Log "Criando config.json..."
 $config = [ordered]@{
-    api_base_url               = $ApiBaseUrl.TrimEnd("/")
-    api_token                  = $ApiToken
-    user_id                    = $UserId
-    agent_version              = $AgentVersion
-    sample_interval_sec        = $SampleIntervalSec
-    heartbeat_interval_sec     = $HeartbeatIntervalSec
-    flush_interval_sec         = $FlushIntervalSec
-    batch_size                 = $BatchSize
-    idle_threshold_sec         = $IdleThresholdSec
-    verify_tls                 = $true
-    request_timeout_sec        = 10
-    enable_screenshots         = $true
-    screenshot_interval_sec    = $ScreenshotIntervalSec
-    screenshot_max_width       = $ScreenshotMaxWidth
-    screenshot_quality         = $ScreenshotQuality
+    api_base_url                = $ApiBaseUrl.TrimEnd("/")
+    api_token                   = $ApiToken
+    user_id                     = $UserId
+    agent_version               = $AgentVersion
+    sample_interval_sec         = $SampleIntervalSec
+    heartbeat_interval_sec      = $HeartbeatIntervalSec
+    flush_interval_sec          = $FlushIntervalSec
+    batch_size                  = $BatchSize
+    idle_threshold_sec          = $IdleThresholdSec
+    verify_tls                  = $true
+    request_timeout_sec         = 10
+    enable_screenshots          = $true
+    screenshot_interval_sec     = $ScreenshotIntervalSec
+    screenshot_max_width        = $ScreenshotMaxWidth
+    screenshot_quality          = $ScreenshotQuality
     screenshot_only_when_active = $true
+    enable_recordings           = $true
+    recording_interval_sec      = $RecordingIntervalSec
+    recording_duration_sec      = $RecordingDurationSec
+    recording_fps               = $RecordingFps
+    recording_max_width         = $RecordingMaxWidth
 }
 $configJson = $config | ConvertTo-Json -Depth 3
 Set-Content -Path "$AgentDir\config.json" -Value $configJson -Encoding UTF8
