@@ -102,14 +102,14 @@ export default async function DashboardPage({ searchParams }) {
     <section className="grid" style={{ gap: 20 }}>
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+      <div className="page-header">
         <div>
           <h1 style={{ margin: 0 }}>Painel operacional</h1>
           <p className="muted" style={{ margin: '4px 0 0', textTransform: 'capitalize' }}>
             {today} — periodo: {from} ate {to}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="page-actions">
           <span className="badge badge-success">● {online.length} online</span>
           <span className="badge badge-warning">● {idle.length} ocioso</span>
           <span className="badge">● {offline.length} offline</span>
@@ -177,7 +177,7 @@ export default async function DashboardPage({ searchParams }) {
       </div>
 
       {/* ── Gráficos lado a lado ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }} className="grid-auto">
+      <div className="split-layout">
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Atividade por hora — hoje</h3>
           <HourlyTimeline data={timeline} />

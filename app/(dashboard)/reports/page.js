@@ -260,7 +260,7 @@ export default async function ReportsPage({ searchParams }) {
 
   return (
     <section className="grid" style={{ gap: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12 }}>
+      <div className="page-header">
         <div>
           <h1 style={{ margin: 0 }}>Analises PAC CONTROL</h1>
           <p className="muted" style={{ margin: '4px 0 0' }}>
@@ -346,7 +346,7 @@ export default async function ReportsPage({ searchParams }) {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20 }}>
+      <div className="panel-grid">
         <div className="card">
           <div className="flex-between" style={{ marginBottom: 8 }}>
             <h3 style={{ margin: 0 }}>Composicao do tempo</h3>
@@ -382,7 +382,7 @@ export default async function ReportsPage({ searchParams }) {
             Ordenado por foco decrescente.
           </p>
         </div>
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
@@ -478,12 +478,12 @@ export default async function ReportsPage({ searchParams }) {
         />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+      <div className="panel-grid">
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
             <h3 style={{ margin: 0 }}>Top aplicativos</h3>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -520,7 +520,7 @@ export default async function ReportsPage({ searchParams }) {
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
             <h3 style={{ margin: 0 }}>Top sites/dominios</h3>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -550,12 +550,12 @@ export default async function ReportsPage({ searchParams }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20 }}>
+      <div className="panel-grid">
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
             <h3 style={{ margin: 0 }}>Atividade por hora (hoje)</h3>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
@@ -590,7 +590,7 @@ export default async function ReportsPage({ searchParams }) {
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
             <h3 style={{ margin: 0 }}>Eventos recentes</h3>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>

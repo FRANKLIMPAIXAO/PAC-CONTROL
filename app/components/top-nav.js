@@ -43,7 +43,7 @@ export default function TopNav({ user }) {
   return (
     <>
       <div className="topnav card">
-        <div>
+        <div className="topnav-brand">
           <strong>PAC CONTROL</strong>
           <div className="muted">{user.name} • {user.email}</div>
         </div>
@@ -69,12 +69,12 @@ export default function TopNav({ user }) {
 
           {user.role === 'admin' && (
             <button
+              className="btn btn-inline"
               id="btn-sync-today"
               onClick={syncToday}
               disabled={syncing}
               title="Recalcular métricas do dia agora, sem esperar a madrugada"
               style={{
-                width: 'auto',
                 padding: '8px 14px',
                 fontSize: 13,
                 background: syncing ? '#0b5a54' : '#0f766e',
@@ -88,7 +88,7 @@ export default function TopNav({ user }) {
             </button>
           )}
 
-          <button onClick={logout} style={{ width: 'auto', padding: '8px 12px' }}>
+          <button onClick={logout} className="btn btn-inline" style={{ padding: '8px 12px' }}>
             Sair
           </button>
         </nav>
@@ -109,6 +109,7 @@ export default function TopNav({ user }) {
           fontWeight: 600,
           boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
           maxWidth: 360,
+          left: 16,
         }}>
           {syncMsg.text}
         </div>

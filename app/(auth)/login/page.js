@@ -7,7 +7,7 @@ export default async function LoginPage() {
   if (session) redirect('/dashboard');
 
   return (
-    <main className="container" style={{ maxWidth: 420, marginTop: 80 }}>
+    <main className="container" style={{ maxWidth: 420, marginTop: 'min(12vh, 80px)' }}>
       <div className="card">
         <h1 style={{ marginTop: 0 }}>Acesso PAC CONTROL</h1>
         <p className="muted">Use seu email corporativo e senha para entrar no sistema.</p>

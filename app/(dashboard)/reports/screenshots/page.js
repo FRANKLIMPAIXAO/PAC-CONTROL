@@ -65,14 +65,14 @@ export default async function ScreenshotsPage({ searchParams }) {
 
   return (
     <section className="grid" style={{ gap: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+      <div className="page-header">
         <div>
           <h1 style={{ margin: 0 }}>Galeria de Capturas</h1>
           <p className="muted" style={{ margin: '4px 0 0' }}>
             Admin: blocos por colaborador e filtro por periodo.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="page-actions">
           <a className="btn ghost" href={`/reports/recordings?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`}>
             Ver Gravacoes
           </a>
@@ -82,7 +82,7 @@ export default async function ScreenshotsPage({ searchParams }) {
         </div>
       </div>
 
-      <form method="GET" className="card" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'end' }}>
+      <form method="GET" className="card filter-form">
         <div style={{ minWidth: 170 }}>
           <label className="muted" style={{ display: 'block', marginBottom: 6 }}>Data inicial</label>
           <input className="input" type="date" name="from" defaultValue={from} />
@@ -102,7 +102,7 @@ export default async function ScreenshotsPage({ searchParams }) {
             ))}
           </select>
         </div>
-        <button className="btn primary" type="submit">Filtrar</button>
+        <button className="btn btn-inline" type="submit">Filtrar</button>
       </form>
 
       {errorMessage ? (
