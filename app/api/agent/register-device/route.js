@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
+import { ensureActiveUser } from '@/lib/agent-security';
 
 function authorized(req) {
   const header = req.headers.get('authorization') || '';
@@ -13,6 +14,11 @@ export async function POST(req) {
   const { user_id, hostname, os, agent_version } = await req.json();
   if (!user_id || !hostname || !os) {
     return NextResponse.json({ error: 'user_id, hostname and os are required' }, { status: 400 });
+  }
+
+  const user = await ensureActiveUser(user_id);
+  if (!user) {
+    return NextResponse.json({ error: 'user_id invalido ou inativo' }, { status: 404 });
   }
 
   const version = agent_version || '0.1.0';

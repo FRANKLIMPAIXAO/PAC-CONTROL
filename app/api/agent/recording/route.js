@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import sql from '@/lib/db';
+import { ensureDeviceBelongsToUser } from '@/lib/agent-security';
 
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // 50MB
 
@@ -45,6 +46,11 @@ export async function POST(req) {
 
     if (!device_id || !user_id || !video_base64) {
       return NextResponse.json({ error: 'device_id, user_id e video_base64 sao obrigatorios' }, { status: 400 });
+    }
+
+    const device = await ensureDeviceBelongsToUser(device_id, user_id);
+    if (!device) {
+      return NextResponse.json({ error: 'device_id nao pertence ao user_id informado' }, { status: 403 });
     }
 
     const mimeType = mime_type || 'video/mp4';

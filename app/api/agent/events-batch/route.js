@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
+import { ensureDeviceBelongsToUser } from '@/lib/agent-security';
 
 const MAX_BATCH = 300;
 
@@ -21,6 +22,11 @@ export async function POST(req) {
   if (events.length === 0) return NextResponse.json({ ok: true, inserted: 0 });
   if (events.length > MAX_BATCH) {
     return NextResponse.json({ error: `Batch too large. Max ${MAX_BATCH}` }, { status: 400 });
+  }
+
+  const device = await ensureDeviceBelongsToUser(device_id, user_id);
+  if (!device) {
+    return NextResponse.json({ error: 'device_id nao pertence ao user_id informado' }, { status: 403 });
   }
 
   const now = new Date().toISOString();

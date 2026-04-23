@@ -3,6 +3,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import sql from '@/lib/db';
+import { ensureDeviceBelongsToUser } from '@/lib/agent-security';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4MB
 
@@ -49,6 +50,11 @@ export async function POST(req) {
 
     if (!device_id || !user_id || !image_base64) {
       return NextResponse.json({ error: 'device_id, user_id and image_base64 are required' }, { status: 400 });
+    }
+
+    const device = await ensureDeviceBelongsToUser(device_id, user_id);
+    if (!device) {
+      return NextResponse.json({ error: 'device_id nao pertence ao user_id informado' }, { status: 403 });
     }
 
     const mimeType = mime_type || 'image/jpeg';
