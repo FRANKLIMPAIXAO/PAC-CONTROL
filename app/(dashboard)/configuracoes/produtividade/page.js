@@ -204,11 +204,12 @@ export default function ProdutividadePage() {
           borderTop: '1px solid #e5e7eb', alignItems: 'center',
         }}>
           <input
-            placeholder="app ou dominio (ex: youtube.com)"
+            type="text"
+            placeholder="Digite o nome do ERP ou domínio..."
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addCustom()}
-            style={{ flex: 1, fontSize: 13, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6 }}
+            style={{ flex: 1, minWidth: '250px', fontSize: 14, padding: '10px 14px', border: '2px solid #0f766e', borderRadius: 6, background: '#ffffff', color: '#000000' }}
           />
           <CategorySelect value={newCat} onChange={setNewCat} />
           <button onClick={addCustom} style={{ width: 'auto', padding: '8px 16px', fontSize: 13 }}>
