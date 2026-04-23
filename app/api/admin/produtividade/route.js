@@ -66,6 +66,11 @@ export async function POST(req) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: 'Acesso negado' }, { status: 403 });
 
+  const [userRow] = await sql`SELECT company_id FROM users WHERE id = ${session.sub} LIMIT 1`;
+  const companyId = userRow?.company_id || session.company_id;
+
+  if (!companyId) return NextResponse.json({ error: 'Empresa nao vinculada ao usuario' }, { status: 400 });
+
   const body = await req.json();
   const { upserts = [], deleted_ids = [] } = body;
 
@@ -83,7 +88,7 @@ export async function POST(req) {
     await sql`
       DELETE FROM app_classification
       WHERE id = ANY(${deleted_ids}::uuid[])
-        AND company_id = ${session.company_id}
+        AND company_id = ${companyId}
     `;
   }
 
@@ -93,12 +98,12 @@ export async function POST(req) {
       await sql`
         UPDATE app_classification
         SET category = ${u.category}, app_or_domain = ${name}
-        WHERE id = ${u.id} AND company_id = ${session.company_id}
+        WHERE id = ${u.id} AND company_id = ${companyId}
       `;
     } else {
       await sql`
         INSERT INTO app_classification (company_id, app_or_domain, category, score)
-        VALUES (${session.company_id}, ${name}, ${u.category}, ${u.category === 'productive' ? 100 : u.category === 'unproductive' ? 0 : 50})
+        VALUES (${companyId}, ${name}, ${u.category}, ${u.category === 'productive' ? 100 : u.category === 'unproductive' ? 0 : 50})
         ON CONFLICT (company_id, app_or_domain) DO UPDATE SET category = EXCLUDED.category, score = EXCLUDED.score
       `;
     }
