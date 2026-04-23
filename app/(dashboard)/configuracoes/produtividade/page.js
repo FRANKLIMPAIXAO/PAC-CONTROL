@@ -208,7 +208,7 @@ export default function ProdutividadePage() {
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addCustom()}
-            style={{ flex: 1, fontSize: 13 }}
+            style={{ flex: 1, fontSize: 13, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6 }}
           />
           <CategorySelect value={newCat} onChange={setNewCat} />
           <button onClick={addCustom} style={{ width: 'auto', padding: '8px 16px', fontSize: 13 }}>

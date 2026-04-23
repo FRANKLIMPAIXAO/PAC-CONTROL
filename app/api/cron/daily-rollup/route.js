@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { promises as fs } from 'fs';
 import sql from '@/lib/db';
 
 function authorized(req) {
@@ -104,8 +105,41 @@ export async function POST(req) {
     `;
   }
 
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  await sql`DELETE FROM events_raw WHERE ts < ${ninetyDaysAgo}`;
+  // ── RETENÇÃO: 60 DIAS ──
+  const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
 
-  return NextResponse.json({ ok: true, day, users_processed: upserts.length });
+  // 1. Limpeza de Screenshots Antigos
+  const oldScreenshots = await sql`SELECT id, file_path FROM screenshot_events WHERE ts < ${sixtyDaysAgo}`;
+  for (const shot of oldScreenshots) {
+    if (shot.file_path) {
+      await fs.unlink(shot.file_path).catch(() => {}); // Ignora se o arquivo já não existir
+    }
+  }
+  if (oldScreenshots.length > 0) {
+    const shotIds = oldScreenshots.map(s => s.id);
+    await sql`DELETE FROM screenshot_events WHERE id IN ${sql(shotIds)}`;
+  }
+
+  // 2. Limpeza de Vídeos Antigos
+  const oldVideos = await sql`SELECT id, file_path FROM video_events WHERE ts < ${sixtyDaysAgo}`;
+  for (const vid of oldVideos) {
+    if (vid.file_path) {
+      await fs.unlink(vid.file_path).catch(() => {});
+    }
+  }
+  if (oldVideos.length > 0) {
+    const vidIds = oldVideos.map(v => v.id);
+    await sql`DELETE FROM video_events WHERE id IN ${sql(vidIds)}`;
+  }
+
+  // 3. Limpeza de Eventos Brutos
+  await sql`DELETE FROM events_raw WHERE ts < ${sixtyDaysAgo}`;
+
+  return NextResponse.json({
+    ok: true,
+    day,
+    users_processed: upserts.length,
+    deleted_screenshots: oldScreenshots.length,
+    deleted_videos: oldVideos.length
+  });
 }
