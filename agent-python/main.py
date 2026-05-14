@@ -279,6 +279,11 @@ class DomainDetector:
             if domain:
                 return domain
 
+        if self.system == "windows":
+            domain = self._domain_windows(app_name)
+            if domain:
+                return domain
+
         # Fallback generico: so tenta extrair se houver URL visivel no titulo.
         if window_title:
             parsed = self._normalize_url(window_title.strip())
@@ -296,6 +301,50 @@ class DomainDetector:
         if not url:
             return None
         return self._normalize_url(url)
+
+
+    def _domain_windows(self, app_name):
+        """Captura URL do navegador ativo no Windows via UI Automation."""
+        try:
+            import uiautomation as auto
+            if not app_name:
+                return None
+            app_lower = app_name.lower()
+            browser_configs = [
+                ('chrome',   ['Address and search bar', 'Barra de endereço e pesquisa']),
+                ('msedge',   ['Address and search bar', 'Barra de endereços e pesquisa']),
+                ('firefox',  ['Search with Google or enter address', 'Pesquisar ou inserir endereço']),
+                ('brave',    ['Address and search bar', 'Barra de endereço e pesquisa']),
+                ('opera',    ['Address and search bar']),
+            ]
+            matched = False
+            search_names = []
+            for key, names in browser_configs:
+                if key in app_lower:
+                    matched = True
+                    search_names = names
+                    break
+            if not matched:
+                return None
+            for name in search_names:
+                try:
+                    edit = auto.EditControl(searchDepth=12, Name=name)
+                    if edit.Exists(0, 0):
+                        url = edit.GetValuePattern().Value
+                        if url and ('.' in url or 'localhost' in url):
+                            if '://' not in url:
+                                url = 'https://' + url
+                            return self._normalize_url(url)
+                except Exception:
+                    continue
+            return None
+        except ImportError:
+            if not getattr(self, '_warned_uiautomation', False):
+                print('[agent] aviso: uiautomation nao instalado - instale com: pip install uiautomation')
+                self._warned_uiautomation = True
+            return None
+        except Exception:
+            return None
 
     def _run_osascript(self, script: str) -> Optional[str]:
         try:

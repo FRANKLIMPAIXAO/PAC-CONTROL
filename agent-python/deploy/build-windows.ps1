@@ -48,7 +48,8 @@ $deps = @(
     "mss>=9.0",
     "Pillow>=10.4",
     "imageio[ffmpeg]>=2.34",
-    "numpy>=1.26"
+    "numpy>=1.26",
+    "uiautomation>=2.0.18"
 )
 foreach ($dep in $deps) {
     Write-Host "  pip install $dep" -ForegroundColor Gray

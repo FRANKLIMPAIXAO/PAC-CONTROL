@@ -146,16 +146,19 @@ export default async function ReportsPage({ searchParams }) {
 
     topDomains = await sql`
       SELECT er.url_domain AS domain,
+             er.user_id,
+             u.name AS user_name,
              COUNT(*)::int AS events,
              MAX(er.ts) AS last_seen
       FROM events_raw er
+      JOIN users u ON u.id = er.user_id
       WHERE er.ts >= ${from}::date
         AND er.ts < (${to}::date + INTERVAL '1 day')
         AND COALESCE(er.url_domain, '') <> ''
         ${eventsFilter}
-      GROUP BY er.url_domain
+      GROUP BY er.url_domain, er.user_id, u.name
       ORDER BY events DESC
-      LIMIT 20
+      LIMIT 60
     `;
 
     recentEvents = await sql`
@@ -525,21 +528,23 @@ export default async function ReportsPage({ searchParams }) {
               <thead>
                 <tr>
                   <th>Dominio</th>
+                  <th>Colaborador</th>
                   <th>Eventos</th>
                   <th>Ultimo acesso</th>
                 </tr>
               </thead>
               <tbody>
                 {topDomains.map(site => (
-                  <tr key={site.domain}>
+                  <tr key={`${site.domain}-${site.user_id}`}>
                     <td>{site.domain}</td>
+                    <td>{site.user_name || '-'}</td>
                     <td>{site.events}</td>
                     <td>{formatTs(site.last_seen)}</td>
                   </tr>
                 ))}
                 {topDomains.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="muted" style={{ textAlign: 'center', padding: 20 }}>
+                    <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: 20 }}>
                       Ainda sem dominios capturados. Para listar sites, o agente precisa preencher url_domain.
                     </td>
                   </tr>
