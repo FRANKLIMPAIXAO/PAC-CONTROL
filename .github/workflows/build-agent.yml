@@ -1,0 +1,64 @@
+name: Build PACControlAgent.exe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agent-python/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller>=6.0 requests>=2.32 psutil>=6.1 pynput>=1.7 mss>=9.0 Pillow>=10.4 "imageio[ffmpeg]>=2.34" numpy>=1.26 uiautomation>=2.0.18
+        working-directory: agent-python
+
+      - name: Build com PyInstaller
+        run: |
+          pyinstaller `
+            --onefile `
+            --noconsole `
+            --name PACControlAgent `
+            --distpath dist\windows `
+            --workpath build\windows `
+            --specpath build `
+            --hidden-import pynput.keyboard._win32 `
+            --hidden-import pynput.mouse._win32 `
+            --hidden-import PIL._imaging `
+            --hidden-import imageio_ffmpeg `
+            --collect-all imageio `
+            --collect-all imageio_ffmpeg `
+            main.py
+        working-directory: agent-python
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PACControlAgent
+          path: agent-python/dist/windows/PACControlAgent.exe
+          retention-days: 90
+
+      - name: Criar ou atualizar Release latest-agent
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-agent
+          name: "PACControlAgent - Build automatico"
+          body: "Build gerado automaticamente pelo GitHub Actions."
+          prerelease: false
+          make_latest: true
+          files: agent-python/dist/windows/PACControlAgent.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

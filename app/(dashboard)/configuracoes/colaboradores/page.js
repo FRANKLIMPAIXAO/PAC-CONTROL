@@ -146,6 +146,15 @@ export default function ColaboradoresPage() {
     }
   }, [topMsg]);
 
+  function copyInstallCmd(userId) {
+    const cmd = `irm ${window.location.origin}/api/install/${userId} | iex`;
+    navigator.clipboard.writeText(cmd).then(() => {
+      setTopMsg({ type: 'ok', text: 'Comando copiado! Cole no PowerShell da maquina do colaborador.' });
+    }).catch(() => {
+      prompt('Copie o comando:', cmd);
+    });
+  }
+
   return (
     <div className="grid" style={{ gap: 20 }}>
       <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -210,6 +219,13 @@ export default function ColaboradoresPage() {
                       </button>
                       <button onClick={() => openReset(u)} style={{ width: 'auto', padding: '4px 10px', fontSize: 12, background: '#0f766e' }}>
                         Trocar senha
+                      </button>
+                      <button
+                        onClick={() => copyInstallCmd(u.id)}
+                        title="Copia comando para instalar o agente nesta maquina"
+                        style={{ width: 'auto', padding: '4px 10px', fontSize: 12, background: '#7c3aed' }}
+                      >
+                        Instalar Agente
                       </button>
                       {u.status === 'active' && (
                         <button onClick={() => deactivate(u)} style={{ width: 'auto', padding: '4px 10px', fontSize: 12, background: '#dc2626' }}>
