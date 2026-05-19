@@ -5,6 +5,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import MetricCard from '@/app/components/metric-card';
 import Avatar from '@/app/components/avatar';
+import DateRangeFilter from '@/app/components/date-range-filter';
 import CompositionDonut from '@/app/components/charts/composition-donut';
 import FocusRanking from '@/app/components/charts/focus-ranking';
 
@@ -264,18 +265,21 @@ export default async function ReportsPage({ searchParams }) {
 
   return (
     <section className="grid" style={{ gap: 20 }}>
-      <div className="page-header">
+      <div className="page-header" style={{ flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ margin: 0 }}>Analises PAC CONTROL</h1>
           <p className="muted" style={{ margin: '4px 0 0' }}>
-            Consolidado por colaborador no periodo: {from} ate {to}
+            Periodo: {from} ate {to} ({numDays} dia{numDays > 1 ? 's' : ''})
           </p>
         </div>
-        {activePeriod && (
-          <span className="badge badge-info" style={{ fontSize: 13, padding: '6px 14px' }}>
-            Periodo ativo: {activePeriod.name} (meta {activePeriod.focusTarget}%)
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          {activePeriod && (
+            <span className="badge badge-info" style={{ fontSize: 13, padding: '6px 14px' }}>
+              Periodo ativo: {activePeriod.name} (meta {activePeriod.focusTarget}%)
+            </span>
+          )}
+          <DateRangeFilter from={from} to={to} />
+        </div>
       </div>
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
