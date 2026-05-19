@@ -223,11 +223,25 @@ class IdleDetector:
         try:
             import ctypes
 
+            user32   = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
+
+            # Detecta tela bloqueada (Win+L): OpenInputDesktop retorna NULL quando
+            # o desktop interativo nao esta acessivel (sessao bloqueada).
+            DESKTOP_READOBJECTS = 0x0001
+            try:
+                hdesk = user32.OpenInputDesktop(0, False, DESKTOP_READOBJECTS)
+                if hdesk:
+                    user32.CloseDesktop(hdesk)
+                else:
+                    # Tela bloqueada — retorna valor muito alto para forcar is_idle=True
+                    # sem gerar eventos que inflam o contador de ocioso noturno
+                    return 86400  # 24h — sera filtrado pelo rollup como "locked"
+            except Exception:
+                pass
+
             class LASTINPUTINFO(ctypes.Structure):
                 _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
-
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
 
             lii = LASTINPUTINFO()
             lii.cbSize = ctypes.sizeof(LASTINPUTINFO)
@@ -930,7 +944,14 @@ class Agent:
         app_name, window_title = self.foreground.detect()
         url_domain = self.domain.detect_domain(app_name, window_title)
         idle_seconds = self.idle.idle_seconds()
+        # idle_seconds == 86400 significa tela bloqueada (Windows)
+        is_locked = (idle_seconds is not None and idle_seconds >= 86400)
         is_idle = bool(idle_seconds is not None and idle_seconds >= self.cfg.idle_threshold_sec)
+
+        # Nao enviar eventos durante bloqueio de tela — evita inflar horas de ocioso
+        if is_locked:
+            time.sleep(self.cfg.sample_interval_sec)
+            return
 
         keys_count, mouse_count = self.activity.pull_and_reset()
 

@@ -93,6 +93,7 @@ export default async function ReportsPage({ searchParams }) {
   const range = defaultRange();
   const from = params?.from || range.from;
   const to = params?.to || range.to;
+  const numDays = Math.max(1, Math.round((new Date(to) - new Date(from)) / (1000 * 60 * 60 * 24)) + 1);
 
   const goals = loadGoals();
   const activePeriod = getActivePeriod(goals, from);
@@ -382,7 +383,7 @@ export default async function ReportsPage({ searchParams }) {
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)' }}>
           <h3 style={{ margin: 0 }}>Detalhes por colaborador</h3>
           <p className="muted" style={{ margin: '4px 0 0', fontSize: 13 }}>
-            Ordenado por foco decrescente.
+            Soma de {numDays} dia{numDays > 1 ? 's' : ''} ({from} até {to}). Use o filtro de data para ver 1 dia.
           </p>
         </div>
         <div className="table-wrap">
@@ -394,6 +395,7 @@ export default async function ReportsPage({ searchParams }) {
                 <th>Neutro</th>
                 <th>Improdutivo</th>
                 <th>Ocioso</th>
+                <th>Média/dia</th>
                 <th style={{ minWidth: 220 }}>Foco vs Meta</th>
               </tr>
             </thead>
@@ -417,6 +419,7 @@ export default async function ReportsPage({ searchParams }) {
                     <td>{formatDuration(row.neutral)}</td>
                     <td>{formatDuration(row.unproductive)}</td>
                     <td>{formatDuration(row.idle)}</td>
+                    <td style={{ color: '#6b7280', fontSize: 13 }}>{formatDuration(Math.round(row.productive / numDays))}</td>
                     <td>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                         <span style={{ fontSize: 14, fontWeight: 700, color }}>{pct(row.focus)}</span>
