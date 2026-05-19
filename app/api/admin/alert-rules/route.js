@@ -1,34 +1,21 @@
 import { NextResponse } from 'next/server';
 import sql from '@/lib/db';
+import { requireRoles } from '@/lib/auth-server';
 
-async function getCompanyId(req) {
-  const h = req.headers.get('authorization') || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7).trim() : '';
-  if (!token) return null;
-  const rows = await sql`
-    SELECT u.company_id FROM users u
-    WHERE u.session_token = ${token} AND u.status = 'active'
-    LIMIT 1
-  `;
-  return rows[0]?.company_id || null;
-}
-
-export async function GET(req) {
-  const companyId = await getCompanyId(req);
-  if (!companyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export async function GET() {
+  const session = await requireRoles(['admin']);
 
   const rules = await sql`
     SELECT id, name, type, threshold, enabled, notify_email, created_at
     FROM alert_rules
-    WHERE company_id = ${companyId}
+    WHERE company_id = ${session.company_id}
     ORDER BY created_at DESC
   `;
   return NextResponse.json({ rules });
 }
 
 export async function POST(req) {
-  const companyId = await getCompanyId(req);
-  if (!companyId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const session = await requireRoles(['admin']);
 
   const body = await req.json();
   const { name, type, threshold, enabled = true, notify_email = true } = body;
@@ -44,7 +31,7 @@ export async function POST(req) {
 
   const [rule] = await sql`
     INSERT INTO alert_rules (company_id, name, type, threshold, enabled, notify_email)
-    VALUES (${companyId}, ${name}, ${type}, ${Number(threshold)}, ${Boolean(enabled)}, ${Boolean(notify_email)})
+    VALUES (${session.company_id}, ${name}, ${type}, ${Number(threshold)}, ${Boolean(enabled)}, ${Boolean(notify_email)})
     RETURNING id, name, type, threshold, enabled, notify_email, created_at
   `;
   return NextResponse.json({ rule }, { status: 201 });
