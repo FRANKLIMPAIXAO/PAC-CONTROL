@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db';
+import sql from '@/lib/db';
 
 const EXE_URL =
   'https://github.com/FRANKLIMPAIXAO/PAC-CONTROL/releases/latest/download/PACControlAgent.exe';
