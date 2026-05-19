@@ -12,7 +12,7 @@ export async function GET() {
   }
 
   const rows = await sql`
-    SELECT u.id, u.name, u.email, u.role, u.status, u.team_id, u.created_at,
+    SELECT u.id, u.name, u.email, u.role, u.status, u.team_id, u.salary_monthly, u.created_at,
            t.name AS team_name
     FROM users u
     LEFT JOIN teams t ON t.id = u.team_id
@@ -29,7 +29,7 @@ export async function POST(req) {
   }
 
   try {
-    const { name, email, role, team_id, password } = await req.json();
+    const { name, email, role, team_id, password, salary_monthly } = await req.json();
 
     if (!name || !email || !password) {
       return NextResponse.json({ error: 'Nome, email e senha sao obrigatorios' }, { status: 400 });
@@ -57,7 +57,7 @@ export async function POST(req) {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [created] = await sql`
-      INSERT INTO users (id, company_id, team_id, name, email, role, status, password_hash)
+      INSERT INTO users (id, company_id, team_id, name, email, role, status, password_hash, salary_monthly)
       VALUES (
         gen_random_uuid(),
         ${admin.company_id},
@@ -66,9 +66,10 @@ export async function POST(req) {
         ${emailLower},
         ${role},
         'active',
-        ${passwordHash}
+        ${passwordHash},
+        ${salary_monthly || 0}
       )
-      RETURNING id, name, email, role, status, team_id
+      RETURNING id, name, email, role, status, team_id, salary_monthly
     `;
 
     return NextResponse.json({ ok: true, user: created });

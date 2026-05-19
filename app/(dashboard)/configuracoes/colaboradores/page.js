@@ -18,7 +18,7 @@ export default function ColaboradoresPage() {
   // modal state
   const [modal, setModal] = useState(null); // { mode: 'new' | 'edit' | 'reset', user? }
   const [form, setForm] = useState({
-    name: '', email: '', role: 'colaborador', team_id: '', password: '', status: 'active',
+    name: '', email: '', role: 'colaborador', team_id: '', password: '', status: 'active', salary_monthly: '',
   });
   const [newPassword, setNewPassword] = useState('');
   const [saving, setSaving] = useState(false);
@@ -42,7 +42,7 @@ export default function ColaboradoresPage() {
   useEffect(() => { loadAll(); }, []);
 
   function openNew() {
-    setForm({ name: '', email: '', role: 'colaborador', team_id: '', password: '', status: 'active' });
+    setForm({ name: '', email: '', role: 'colaborador', team_id: '', password: '', status: 'active', salary_monthly: '' });
     setModal({ mode: 'new' });
   }
 
@@ -53,6 +53,7 @@ export default function ColaboradoresPage() {
       role: user.role,
       team_id: user.team_id || '',
       status: user.status,
+      salary_monthly: user.salary_monthly ?? '',
       password: '',
     });
     setModal({ mode: 'edit', user });
@@ -97,6 +98,7 @@ export default function ColaboradoresPage() {
             role: form.role,
             team_id: form.team_id,
             status: form.status,
+            salary_monthly: parseFloat(form.salary_monthly) || 0,
           }),
         });
         const data = await res.json();
@@ -288,6 +290,11 @@ export default function ColaboradoresPage() {
                     <option value="">— Sem time —</option>
                     {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>Salario Mensal (R$)</label>
+                  <input type="number" min="0" step="0.01" value={form.salary_monthly} onChange={e => setForm({ ...form, salary_monthly: e.target.value })} style={{ width: '100%' }} placeholder="0.00" />
                 </div>
 
                 {modal.mode === 'new' && (

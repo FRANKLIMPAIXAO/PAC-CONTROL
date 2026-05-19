@@ -12,7 +12,7 @@ export async function GET(_req, { params }) {
   }
   const { id } = await params;
   const [user] = await sql`
-    SELECT id, name, email, role, status, team_id
+    SELECT id, name, email, role, status, team_id, salary_monthly
     FROM users WHERE id = ${id} LIMIT 1
   `;
   if (!user) return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 });
@@ -27,7 +27,7 @@ export async function PUT(req, { params }) {
 
   try {
     const { id } = await params;
-    const { name, email, role, team_id, status } = await req.json();
+    const { name, email, role, team_id, status, salary_monthly } = await req.json();
 
     if (!name || !email) {
       return NextResponse.json({ error: 'Nome e email sao obrigatorios' }, { status: 400 });
@@ -59,9 +59,10 @@ export async function PUT(req, { params }) {
         email = ${emailLower},
         role = ${role},
         team_id = ${team_id || null},
-        status = ${status}
+        status = ${status},
+        salary_monthly = ${salary_monthly ?? 0}
       WHERE id = ${id}
-      RETURNING id, name, email, role, status, team_id
+      RETURNING id, name, email, role, status, team_id, salary_monthly
     `;
 
     if (!updated) return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 });

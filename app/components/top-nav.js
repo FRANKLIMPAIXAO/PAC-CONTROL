@@ -58,6 +58,16 @@ export default function TopNav({ user }) {
             </Link>
           )}
           {(user.role === 'admin') && (
+            <Link href="/mosaic" className="badge" style={{ fontWeight: pathname === '/mosaic' ? 700 : 400 }}>
+              Mosaico
+            </Link>
+          )}
+          {(user.role === 'admin') && (
+            <Link href="/alertas" className="badge" style={{ fontWeight: pathname === '/alertas' ? 700 : 400 }}>
+              Alertas
+            </Link>
+          )}
+          {(user.role === 'admin') && (
             <Link href="/configuracoes" className="badge" style={{ fontWeight: pathname.startsWith('/configuracoes') ? 700 : 400 }}>
               Configuracoes
             </Link>
@@ -73,7 +83,7 @@ export default function TopNav({ user }) {
               id="btn-sync-today"
               onClick={syncToday}
               disabled={syncing}
-              title="Recalcular métricas do dia agora, sem esperar a madrugada"
+              title="Recalcular metricas do dia agora, sem esperar a madrugada"
               style={{
                 padding: '8px 14px',
                 fontSize: 13,

@@ -124,7 +124,7 @@ export default async function ReportsPage({ searchParams }) {
   } else {
     const rowsDb = await sql`
       SELECT md.user_id, md.productive_sec, md.neutral_sec, md.unproductive_sec, md.idle_sec,
-             u.name, u.email
+             u.name, u.email, COALESCE(u.salary_monthly, 0) AS salary_monthly
       FROM metrics_daily md
       JOIN users u ON u.id = md.user_id
       WHERE md.day >= ${from} AND md.day <= ${to} ${metricFilter}
@@ -229,11 +229,13 @@ export default async function ReportsPage({ searchParams }) {
       neutral: 0,
       unproductive: 0,
       idle: 0,
+      salary_monthly: 0,
     };
     current.productive += row.productive_sec || 0;
     current.neutral += row.neutral_sec || 0;
     current.unproductive += row.unproductive_sec || 0;
     current.idle += row.idle_sec || 0;
+    current.salary_monthly = Math.max(current.salary_monthly, row.salary_monthly || 0);
     grouped.set(row.user_id, current);
   }
 
@@ -241,7 +243,10 @@ export default async function ReportsPage({ searchParams }) {
     .map(r => {
       const active = r.productive + r.neutral + r.unproductive;
       const focus = active > 0 ? (r.productive / active) * 100 : 0;
-      return { ...r, focus };
+      const idleHours = r.idle / 3600;
+      const hourlyRate = r.salary_monthly / (22 * 8);
+      const financialLoss = hourlyRate * idleHours;
+      return { ...r, focus, idleHours, financialLoss };
     })
     .sort((a, b) => b.focus - a.focus);
 
@@ -255,9 +260,10 @@ export default async function ReportsPage({ searchParams }) {
       acc.neutral += r.neutral;
       acc.unproductive += r.unproductive;
       acc.idle += r.idle;
+      acc.financialLoss += r.financialLoss || 0;
       return acc;
     },
-    { productive: 0, neutral: 0, unproductive: 0, idle: 0 }
+    { productive: 0, neutral: 0, unproductive: 0, idle: 0, financialLoss: 0 }
   );
 
   const totalActive = totals.productive + totals.neutral + totals.unproductive;
@@ -279,6 +285,16 @@ export default async function ReportsPage({ searchParams }) {
             </span>
           )}
           <DateRangeFilter from={from} to={to} />
+          <a
+            href={'/api/export/reports?from=' + from + '&to=' + to}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', borderRadius: 8, fontSize: 14, fontWeight: 600,
+              background: '#059669', color: 'white', textDecoration: 'none',
+            }}
+          >
+            📥 Exportar CSV
+          </a>
         </div>
       </div>
 
@@ -400,6 +416,7 @@ export default async function ReportsPage({ searchParams }) {
                 <th>Improdutivo</th>
                 <th>Ocioso</th>
                 <th>Média/dia</th>
+                <th>Custo Ociosidade</th>
                 <th style={{ minWidth: 220 }}>Foco vs Meta</th>
               </tr>
             </thead>
@@ -424,6 +441,9 @@ export default async function ReportsPage({ searchParams }) {
                     <td>{formatDuration(row.unproductive)}</td>
                     <td>{formatDuration(row.idle)}</td>
                     <td style={{ color: '#6b7280', fontSize: 13 }}>{formatDuration(Math.round(row.productive / numDays))}</td>
+                    <td style={{ color: row.financialLoss > 0 ? '#dc2626' : '#6b7280', fontSize: 13, fontWeight: row.financialLoss > 100 ? 700 : 400 }}>
+                      {row.salary_monthly > 0 ? 'R$ ' + row.financialLoss.toFixed(2) : '—'}
+                    </td>
                     <td>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                         <span style={{ fontSize: 14, fontWeight: 700, color }}>{pct(row.focus)}</span>
@@ -447,7 +467,7 @@ export default async function ReportsPage({ searchParams }) {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: 40 }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: 'center', padding: 40 }}>
                     Sem dados para o periodo selecionado.
                   </td>
                 </tr>
@@ -458,6 +478,13 @@ export default async function ReportsPage({ searchParams }) {
       </div>
 
       <div className="grid grid-4">
+        <MetricCard
+          title="Custo Ociosidade"
+          value={'R$ ' + (totals.financialLoss || 0).toFixed(2)}
+          subtitle="Estimativa no periodo (salario / 176h)"
+          icon="💸"
+          accent="danger"
+        />
         <MetricCard
           title="Interacoes de teclado"
           value={`${interactionTotals.keys_total || 0}`}

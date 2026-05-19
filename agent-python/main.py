@@ -24,6 +24,7 @@ import platform
 import queue
 import signal
 import socket
+import sqlite3
 import subprocess
 import threading
 import time
@@ -885,6 +886,57 @@ class ApiClient:
         }
         self.session = requests.Session()
         self.session.headers.update(self.headers)
+        self._offline_db: Optional[sqlite3.Connection] = None
+        self._init_offline_db()
+
+    def _init_offline_db(self) -> None:
+        try:
+            db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "offline_queue.db")
+            self._offline_db = sqlite3.connect(db_path, check_same_thread=False)
+            self._offline_db.execute(
+                "CREATE TABLE IF NOT EXISTS offline_events ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "payload TEXT NOT NULL, "
+                "created_at REAL NOT NULL)"
+            )
+            self._offline_db.commit()
+        except Exception as exc:
+            print(f"[agent] offline db init error: {exc}")
+            self._offline_db = None
+
+    def _save_offline(self, payload: Dict[str, Any]) -> None:
+        if not self._offline_db:
+            return
+        try:
+            self._offline_db.execute(
+                "INSERT INTO offline_events (payload, created_at) VALUES (?, ?)",
+                (json.dumps(payload), time.time()),
+            )
+            self._offline_db.commit()
+            print(f"[agent] {len(payload.get('events', []))} eventos salvos offline")
+        except Exception as exc:
+            print(f"[agent] erro ao salvar offline: {exc}")
+
+    def _flush_offline(self) -> None:
+        if not self._offline_db:
+            return
+        try:
+            rows = self._offline_db.execute(
+                "SELECT id, payload FROM offline_events ORDER BY id LIMIT 10"
+            ).fetchall()
+            if not rows:
+                return
+            ids = [r[0] for r in rows]
+            for row_id, raw in rows:
+                payload = json.loads(raw)
+                url = f"{self.base_url}/api/agent/events-batch"
+                resp = self.session.post(url, data=raw, timeout=self.cfg.request_timeout_sec, verify=self.cfg.verify_tls)
+                if resp.status_code < 400:
+                    self._offline_db.execute(f"DELETE FROM offline_events WHERE id = {row_id}")
+                    self._offline_db.commit()
+                    print(f"[agent] batch offline reenviado (id={row_id})")
+        except Exception as exc:
+            print(f"[agent] erro ao reenviar offline: {exc}")
 
     def post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}{path}"
@@ -1107,9 +1159,15 @@ class Agent:
             return
 
         payload = {"device_id": self.device_id, "user_id": self.cfg.user_id, "events": batch}
-        self.client.post("/api/agent/events-batch", payload)
-        self.last_flush = now
-        print(f"[agent] batch enviado: {len(batch)} eventos")
+        try:
+            self.client._flush_offline()
+            self.client.post("/api/agent/events-batch", payload)
+            self.last_flush = now
+            print(f"[agent] batch enviado: {len(batch)} eventos")
+        except Exception as exc:
+            print(f"[agent] erro ao enviar batch, salvando offline: {exc}")
+            self.client._save_offline(payload)
+            self.last_flush = now
 
     def run(self) -> None:
         self.activity.start()
