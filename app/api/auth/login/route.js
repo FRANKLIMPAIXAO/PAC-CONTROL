@@ -40,7 +40,7 @@ export async function POST(req) {
     }
 
     const [user] = await sql`
-      SELECT id, name, email, role, status, password_hash
+      SELECT id, name, email, role, status, password_hash, company_id
       FROM users
       WHERE email = ${emailLower}
       LIMIT 1
@@ -59,7 +59,8 @@ export async function POST(req) {
       sub: user.id,
       email: user.email,
       name: user.name,
-      role: user.role
+      role: user.role,
+      company_id: user.company_id,
     });
 
     const response = NextResponse.json({ ok: true });
