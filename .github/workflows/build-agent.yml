@@ -41,6 +41,9 @@ jobs:
             --hidden-import imageio_ffmpeg `
             --collect-all imageio `
             --collect-all imageio_ffmpeg `
+            --collect-all uiautomation `
+            --hidden-import comtypes.stream `
+            --hidden-import comtypes.automation `
             main.py
         working-directory: agent-python
 
