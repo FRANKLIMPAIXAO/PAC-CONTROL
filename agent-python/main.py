@@ -24,6 +24,7 @@ import platform
 import queue
 import signal
 import socket
+import sys
 import sqlite3
 import subprocess
 import threading
@@ -971,6 +972,7 @@ class Agent:
         self.last_screenshot = 0.0
         self.last_recording = 0.0
         self._recording_active = False
+        self.last_update_check = 0.0
 
     def register_device(self) -> None:
         payload = {
@@ -1180,6 +1182,13 @@ class Agent:
 
         while not self.stop_event.is_set():
             try:
+                # Verifica atualização a cada 6 horas
+                if time.time() - self.last_update_check > 21600:
+                    self.last_update_check = time.time()
+                    if check_and_apply_update():
+                        self.stop_event.set()
+                        break
+
                 event = self.sample_event()
                 self.enqueue_event(event)
                 self.send_heartbeat_if_due(bool(event.get("is_idle")))
@@ -1197,6 +1206,88 @@ class Agent:
         except Exception as exc:
             print(f"[agent] erro no flush final: {exc}")
 
+
+
+GITHUB_RELEASE_API = "https://api.github.com/repos/FRANKLIMPAIXAO/PAC-CONTROL/releases/tags/latest-agent"
+TASK_NAME = "PACControlAgent"
+
+
+def _agent_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def check_and_apply_update() -> bool:
+    """Verifica GitHub. Se há release mais novo, baixa e reinicia via PS1. Retorna True se atualização foi iniciada."""
+    try:
+        stamp_file = os.path.join(_agent_dir(), "last_release_id.txt")
+        current_id = 0
+        if os.path.exists(stamp_file):
+            try:
+                current_id = int(open(stamp_file).read().strip())
+            except Exception:
+                pass
+
+        resp = requests.get(GITHUB_RELEASE_API, timeout=15,
+                            headers={"User-Agent": "pac-control-agent"})
+        if resp.status_code != 200:
+            return False
+
+        data = resp.json()
+        release_id = int(data.get("id", 0))
+
+        if release_id <= current_id:
+            return False
+
+        exe_url = next(
+            (a["browser_download_url"] for a in data.get("assets", [])
+             if a["name"].lower().endswith(".exe")),
+            None,
+        )
+        if not exe_url:
+            return False
+
+        print(f"[updater] nova versao disponivel (release {release_id}). Baixando...")
+
+        exe_path = os.path.join(_agent_dir(), "PACControlAgent.exe")
+        new_exe  = exe_path + ".new"
+
+        r = requests.get(exe_url, timeout=180, stream=True,
+                         headers={"User-Agent": "pac-control-agent"})
+        r.raise_for_status()
+        with open(new_exe, "wb") as f:
+            for chunk in r.iter_content(65536):
+                f.write(chunk)
+
+        print(f"[updater] baixado {os.path.getsize(new_exe)/1e6:.1f} MB. Aplicando...")
+
+        open(stamp_file, "w").write(str(release_id))
+
+        ps = (
+            f"Start-Sleep -Seconds 4\n"
+            f"schtasks /End /TN \"{TASK_NAME}\" 2>$null\n"
+            f"Start-Sleep -Seconds 2\n"
+            f"Copy-Item -Path \"{new_exe}\" -Destination \"{exe_path}\" -Force\n"
+            f"Remove-Item \"{new_exe}\" -ErrorAction SilentlyContinue\n"
+            f"schtasks /Run /TN \"{TASK_NAME}\"\n"
+        )
+        ps_path = os.path.join(_agent_dir(), "_update.ps1")
+        with open(ps_path, "w") as f:
+            f.write(ps)
+
+        subprocess.Popen(
+            ["powershell", "-NonInteractive", "-WindowStyle", "Hidden",
+             "-ExecutionPolicy", "Bypass", "-File", ps_path],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+
+        print("[updater] atualizacao iniciada. Encerrando para reiniciar com nova versao...")
+        return True
+
+    except Exception as exc:
+        print(f"[updater] erro ao verificar atualizacao: {exc}")
+        return False
 
 
 def _setup_file_logging() -> None:
@@ -1217,6 +1308,12 @@ def _setup_file_logging() -> None:
 
 def main() -> None:
     _setup_file_logging()
+
+    # Verifica atualização antes de iniciar (somente no Windows com Task Scheduler)
+    if platform.system().lower() == "windows":
+        if check_and_apply_update():
+            sys.exit(0)
+
     cfg = load_config()
     agent = Agent(cfg)
 
