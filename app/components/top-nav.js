@@ -68,6 +68,16 @@ export default function TopNav({ user }) {
             </Link>
           )}
           {(user.role === 'admin') && (
+            <Link href="/pac-ia" className="badge" style={{
+              fontWeight: pathname === '/pac-ia' ? 700 : 600,
+              background: 'linear-gradient(135deg,#6366f1,#0ea5e9)',
+              color: 'white',
+              opacity: pathname === '/pac-ia' ? 1 : 0.85,
+            }}>
+              PAC.IA
+            </Link>
+          )}
+          {(user.role === 'admin') && (
             <Link href="/configuracoes" className="badge" style={{ fontWeight: pathname.startsWith('/configuracoes') ? 700 : 400 }}>
               Configuracoes
             </Link>
