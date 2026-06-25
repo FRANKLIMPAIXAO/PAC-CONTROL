@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useEffect, useState, useCallback } from 'react';
 
 const SEV = {
@@ -22,10 +22,9 @@ function InsightCard({ ins }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <span style={{ fontWeight: 700, fontSize: 15, color: '#111827' }}>{ins.user_name}</span>
-        <span style={{
-          fontSize: 11, fontWeight: 700, color: 'white',
-          background: cfg.color, borderRadius: 20, padding: '3px 12px',
-        }}>{cfg.label}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'white', background: cfg.color, borderRadius: 20, padding: '3px 12px' }}>
+          {cfg.label}
+        </span>
       </div>
       <p style={{ margin: 0, fontSize: 14, color: '#374151', lineHeight: 1.6 }}>{ins.observation}</p>
       <div style={{ fontSize: 13, color: cfg.color, fontWeight: 600, display: 'flex', gap: 6, alignItems: 'flex-start' }}>
@@ -61,10 +60,7 @@ export default function PacIaPage() {
   useEffect(() => { analyze(); }, [analyze]);
 
   const sorted = data?.insights
-    ? [...data.insights].sort((a, b) => {
-        const o = { alta: 0, media: 1, baixa: 2 };
-        return (o[a.severity] ?? 3) - (o[b.severity] ?? 3);
-      })
+    ? [...data.insights].sort((a, b) => ({ alta: 0, media: 1, baixa: 2 }[a.severity] ?? 3) - ({ alta: 0, media: 1, baixa: 2 }[b.severity] ?? 3))
     : [];
 
   return (
@@ -72,13 +68,9 @@ export default function PacIaPage() {
       <div className="page-header">
         <div>
           <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{
-              background: 'linear-gradient(135deg,#6366f1,#0ea5e9)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              fontWeight: 900,
-              fontSize: 28,
-            }}>PAC.IA</span>
+            <span style={{ background: 'linear-gradient(135deg,#6366f1,#0ea5e9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontWeight: 900, fontSize: 28 }}>
+              PAC.IA
+            </span>
             <span style={{ fontSize: 14, fontWeight: 400, color: '#94a3b8' }}>Analise comportamental da equipe</span>
           </h1>
           {lastRun && (
@@ -87,16 +79,7 @@ export default function PacIaPage() {
             </p>
           )}
         </div>
-        <button
-          onClick={analyze}
-          disabled={loading}
-          style={{
-            width: 'auto', padding: '10px 24px',
-            background: loading ? '#94a3b8' : 'linear-gradient(135deg,#6366f1,#0ea5e9)',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontWeight: 700, fontSize: 14,
-          }}
-        >
+        <button onClick={analyze} disabled={loading} style={{ width: 'auto', padding: '10px 24px', background: loading ? '#94a3b8' : 'linear-gradient(135deg,#6366f1,#0ea5e9)', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 14, border: 'none', borderRadius: 8, color: 'white' }}>
           {loading ? 'Analisando...' : 'Analisar agora'}
         </button>
       </div>
@@ -105,9 +88,7 @@ export default function PacIaPage() {
         <div className="card" style={{ borderLeft: '4px solid #dc2626', background: '#fef2f2', color: '#991b1b' }}>
           <strong>Erro:</strong> {error}
           {error.includes('ANTHROPIC_API_KEY') && (
-            <p style={{ margin: '8px 0 0', fontSize: 13 }}>
-              Adicione a variavel <code>ANTHROPIC_API_KEY</code> no EasyPanel (App &gt; Environment) e redeploy.
-            </p>
+            <p style={{ margin: '8px 0 0', fontSize: 13 }}>Adicione ANTHROPIC_API_KEY no EasyPanel (App &gt; Environment) e redeploy.</p>
           )}
         </div>
       )}
@@ -125,23 +106,14 @@ export default function PacIaPage() {
       {!loading && data && (
         <>
           {data.summary && (
-            <div style={{
-              background: 'linear-gradient(135deg,#f0f4ff,#fafbff)',
-              border: '1px solid #c7d2fe',
-              borderRadius: 10,
-              padding: '16px 20px',
-              display: 'flex', gap: 14, alignItems: 'flex-start',
-            }}>
+            <div style={{ background: 'linear-gradient(135deg,#f0f4ff,#fafbff)', border: '1px solid #c7d2fe', borderRadius: 10, padding: '16px 20px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>&#10022;</span>
-              <p style={{ margin: 0, fontSize: 15, color: '#1e1b4b', fontWeight: 500, lineHeight: 1.7 }}>
-                {data.summary}
-              </p>
+              <p style={{ margin: 0, fontSize: 15, color: '#1e1b4b', fontWeight: 500, lineHeight: 1.7 }}>{data.summary}</p>
             </div>
           )}
-
           {sorted.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <h3 style={{ margin: '4px 0 0', fontSize: 14, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <h3 style={{ margin: '4px 0 0', fontSize: 13, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {sorted.length} alerta{sorted.length !== 1 ? 's' : ''} identificado{sorted.length !== 1 ? 's' : ''}
               </h3>
               {sorted.map((ins, i) => <InsightCard key={i} ins={ins} />)}
@@ -150,9 +122,7 @@ export default function PacIaPage() {
             <div className="card" style={{ textAlign: 'center', padding: 48 }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>&#9989;</div>
               <div style={{ fontWeight: 700, fontSize: 16, color: '#059669' }}>Tudo bem por aqui!</div>
-              <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-                Nenhum padrao preocupante identificado nos ultimos 7 dias.
-              </div>
+              <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>Nenhum padrao preocupante identificado nos ultimos 7 dias.</div>
             </div>
           )}
         </>

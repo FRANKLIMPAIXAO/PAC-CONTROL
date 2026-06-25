@@ -1,4 +1,4 @@
-﻿import { requireRoles } from '@/lib/auth-server';
+import { requireRoles } from '@/lib/auth-server';
 import sql from '@/lib/db';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -8,29 +8,25 @@ export async function GET() {
   try {
     const session = await requireRoles(['admin', 'manager']);
     const company_id = session.company_id;
-
     const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
     const metrics = await sql`
-      SELECT
-        u.id, u.name,
-        COALESCE(SUM(m.productive_sec), 0) AS productive_sec,
-        COALESCE(SUM(m.neutral_sec), 0)    AS neutral_sec,
+      SELECT u.id, u.name,
+        COALESCE(SUM(m.productive_sec),   0) AS productive_sec,
+        COALESCE(SUM(m.neutral_sec),      0) AS neutral_sec,
         COALESCE(SUM(m.unproductive_sec), 0) AS unproductive_sec,
-        COALESCE(SUM(m.idle_sec), 0)       AS idle_sec,
-        COUNT(DISTINCT m.date)             AS days_active
+        COALESCE(SUM(m.idle_sec),         0) AS idle_sec,
+        COUNT(DISTINCT m.date)               AS days_active
       FROM users u
       LEFT JOIN metrics_daily m ON m.user_id = u.id AND m.date >= ${since}
-      WHERE u.company_id = ${company_id}
-        AND u.status = 'active'
-        AND u.role != 'admin'
+      WHERE u.company_id = ${company_id} AND u.status = 'active' AND u.role != 'admin'
       GROUP BY u.id, u.name
       HAVING COUNT(DISTINCT m.date) > 0
       ORDER BY u.name
     `;
 
     if (metrics.length === 0) {
-      return Response.json({ ok: true, insights: [], summary: 'Sem dados suficientes para analise. Verifique se os agentes estao instalados e enviando dados.' });
+      return Response.json({ ok: true, insights: [], summary: 'Sem dados suficientes. Verifique se os agentes estao instalados.' });
     }
 
     const urls = await sql`
@@ -58,37 +54,29 @@ export async function GET() {
         dias_ativos: Number(m.days_active),
         foco_pct: focus,
         produtivo_h: (Number(m.productive_sec) / 3600).toFixed(1),
-        ocioso_h: (Number(m.idle_sec) / 3600).toFixed(1),
+        ocioso_h:    (Number(m.idle_sec)        / 3600).toFixed(1),
         top_sites: (urlMap[m.id] || []).join(', ') || 'sem dados de URL',
       };
     });
 
-    const prompt = `Voce e a PAC.IA, assistente de analise de produtividade do escritorio de contabilidade PAC Tributaria.
-
-Analise os dados de produtividade dos colaboradores abaixo (ultimos 7 dias) e gere insights comportamentais em portugues brasileiro.
-
-Regras:
-- Gere alerta apenas se houver algo que merea atencao real do gestor
-- Foco abaixo de 50% e preocupante
-- Ociosidade acima de 3h/dia e sinal de alerta
-- Sites suspeitos (redes sociais, noticias, streaming) em excesso merecem atencao
-- NAO gere alerta para colaboradores com desempenho normal (foco > 60%, ociosidade baixa)
-
-Dados dos colaboradores:
-${JSON.stringify(collaborators, null, 2)}
-
-Responda SOMENTE com JSON valido neste exato formato (sem markdown, sem explicacoes fora do JSON):
-{
-  "insights": [
-    {
-      "user_name": "Nome do Colaborador",
-      "severity": "alta",
-      "observation": "Descricao objetiva do padrao identificado em 1-2 frases.",
-      "action": "Acao concreta sugerida ao gestor em 1 frase."
-    }
-  ],
-  "summary": "Uma frase resumindo o estado geral da equipe."
-}`;
+    const prompt = [
+      'Voce e a PAC.IA, assistente de analise de produtividade do escritorio PAC Tributaria.',
+      '',
+      'Analise os dados (ultimos 7 dias) e gere insights comportamentais em portugues brasileiro.',
+      '',
+      'Regras:',
+      '- Gere alerta apenas se houver algo que merea atencao real do gestor',
+      '- Foco abaixo de 50% e preocupante',
+      '- Ociosidade acima de 3h/dia e sinal de alerta',
+      '- Sites suspeitos (redes sociais, streaming) em excesso merecem atencao',
+      '- NAO gere alerta para colaboradores com desempenho normal (foco > 60%)',
+      '',
+      'Dados dos colaboradores:',
+      JSON.stringify(collaborators, null, 2),
+      '',
+      'Responda SOMENTE com JSON valido neste formato:',
+      '{"insights":[{"user_name":"...","severity":"alta|media|baixa","observation":"...","action":"..."}],"summary":"..."}',
+    ].join('\n');
 
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const msg = await client.messages.create({
@@ -101,13 +89,12 @@ Responda SOMENTE com JSON valido neste exato formato (sem markdown, sem explicac
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('Resposta da IA fora do formato esperado');
     const result = JSON.parse(match[0]);
-
     return Response.json({ ok: true, ...result });
 
   } catch (err) {
-    const msg = err?.message || String(err);
-    if (msg.includes('NEXT_REDIRECT')) throw err;
-    console.error('[pac-ia]', msg);
-    return Response.json({ ok: false, error: msg }, { status: 500 });
+    const m = err?.message || String(err);
+    if (m.includes('NEXT_REDIRECT')) throw err;
+    console.error('[pac-ia]', m);
+    return Response.json({ ok: false, error: m }, { status: 500 });
   }
 }
