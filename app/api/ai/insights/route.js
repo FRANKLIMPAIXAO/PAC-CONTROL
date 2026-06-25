@@ -16,12 +16,12 @@ export async function GET() {
         COALESCE(SUM(m.neutral_sec),      0) AS neutral_sec,
         COALESCE(SUM(m.unproductive_sec), 0) AS unproductive_sec,
         COALESCE(SUM(m.idle_sec),         0) AS idle_sec,
-        COUNT(DISTINCT m.date)               AS days_active
+        COUNT(DISTINCT m.day)               AS days_active
       FROM users u
-      LEFT JOIN metrics_daily m ON m.user_id = u.id AND m.date >= ${since}
+      LEFT JOIN metrics_daily m ON m.user_id = u.id AND m.day >= ${since}
       WHERE u.company_id = ${company_id} AND u.status = 'active' AND u.role != 'admin'
       GROUP BY u.id, u.name
-      HAVING COUNT(DISTINCT m.date) > 0
+      HAVING COUNT(DISTINCT m.day) > 0
       ORDER BY u.name
     `;
 
