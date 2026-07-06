@@ -24,13 +24,11 @@ export async function GET(req, { params }) {
   const proto = req.headers.get('x-forwarded-proto') || 'http';
   const apiBaseUrl = `${proto}://${host}`;
 
-  const script = generateScript({ userId, token, apiBaseUrl });
-
-  return new Response(script, {
+  return new Response(generateScript({ userId, token, apiBaseUrl }), {
     status: 200,
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Disposition': `attachment; filename="instalar-agente.ps1"`,
+      'Content-Disposition': 'attachment; filename="instalar-agente.ps1"',
     },
   });
 }
@@ -38,13 +36,11 @@ export async function GET(req, { params }) {
 function generateScript({ userId, token, apiBaseUrl }) {
   return `#Requires -Version 5.1
 # PAC CONTROL Agent - Instalador automatico
-# Gerado em: ${new Date().toISOString()}
 
-$ErrorActionPreference = "Stop"
-$AgentDir   = "C:\PACControlAgent"
-$ExeName    = "PACControlAgent.exe"
-$TaskName   = "PACControlAgent"
-$ExeUrl     = "${EXE_URL}"
+$AgentDir = "C:\\PACControlAgent"
+$ExeName  = "PACControlAgent.exe"
+$TaskName = "PACControlAgent"
+$ExeUrl   = "${EXE_URL}"
 $ApiToken   = "${token}"
 $UserId     = "${userId}"
 $ApiBaseUrl = "${apiBaseUrl}"
@@ -59,25 +55,29 @@ Write-Host "   PAC CONTROL Agent - Instalacao      " -ForegroundColor Cyan
 Write-Host "=======================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Para versao anterior sem gerar erro se nao existir
 Write-Step "Parando agente anterior (se houver)..."
-schtasks /End    /TN $TaskName 2>$null | Out-Null
-schtasks /Delete /TN $TaskName /F 2>$null | Out-Null
+$prevErr = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+schtasks /End    /TN $TaskName | Out-Null
+schtasks /Delete /TN $TaskName /F | Out-Null
 Get-Process -Name "PACControlAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+$ErrorActionPreference = $prevErr
 Start-Sleep -Seconds 2
 
 Write-Step "Criando diretorio..."
-New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
+if (-not (Test-Path $AgentDir)) { New-Item -ItemType Directory -Path $AgentDir | Out-Null }
 
 Write-Step "Baixando $ExeName..."
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Invoke-WebRequest -Uri $ExeUrl -OutFile "$AgentDir\$ExeName" -UseBasicParsing
+  Invoke-WebRequest -Uri $ExeUrl -OutFile "$AgentDir\\$ExeName" -UseBasicParsing
   Write-OK "Download concluido."
 } catch {
   Write-Fail "Falha no download: $_"
 }
 
-$sizeMB = [math]::Round((Get-Item "$AgentDir\$ExeName").Length / 1MB, 1)
+$sizeMB = [math]::Round((Get-Item "$AgentDir\\$ExeName").Length / 1MB, 1)
 Write-OK "Verificado: $sizeMB MB"
 
 Write-Step "Criando config.json..."
@@ -104,7 +104,7 @@ $cfg = [ordered]@{
   recording_fps               = 3
   recording_max_width         = 960
 }
-$cfg | ConvertTo-Json -Depth 3 | Set-Content "$AgentDir\config.json" -Encoding UTF8
+$cfg | ConvertTo-Json -Depth 3 | Set-Content "$AgentDir\\config.json" -Encoding UTF8
 Write-OK "config.json criado."
 
 Write-Step "Registrando no Task Scheduler..."
@@ -133,16 +133,16 @@ $xml = @"
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>"$AgentDir\$ExeName"</Command>
+      <Command>"$AgentDir\\$ExeName"</Command>
       <WorkingDirectory>$AgentDir</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>
 "@
-$tmp = "$env:TEMP\pac-task.xml"
+$tmp = "$env:TEMP\\pac-task.xml"
 [System.IO.File]::WriteAllText($tmp, $xml, [System.Text.Encoding]::Unicode)
 schtasks /Create /TN $TaskName /XML $tmp /F | Out-Null
-Remove-Item $tmp -ErrorAction SilentlyContinue
+[System.IO.File]::Delete($tmp)
 Write-OK "Task Scheduler configurado."
 
 Write-Step "Iniciando agente..."
