@@ -1,24 +1,17 @@
-// Reusable KPI card with icon + optional trend.
-// Props:
-//   title     string   - label acima do valor
-//   value     string   - numero principal
-//   subtitle  string?  - texto descritivo pequeno
-//   icon      string?  - emoji ou caractere exibido no quadrado colorido
-//   accent    string?  - uma de: 'brand' | 'success' | 'warning' | 'danger' | 'info'
-//   trend     { dir: 'up' | 'down', value: string }?  - opcional, indicador
-
+// Metric KPI Card — v2
 const ACCENTS = {
-  brand:   { bg: '#f0fdfa', fg: '#0f766e', bar: '#14b8a6' },
-  success: { bg: '#d1fae5', fg: '#059669', bar: '#10b981' },
-  warning: { bg: '#fef3c7', fg: '#d97706', bar: '#f59e0b' },
-  danger:  { bg: '#fee2e2', fg: '#dc2626', bar: '#ef4444' },
-  info:    { bg: '#dbeafe', fg: '#2563eb', bar: '#3b82f6' },
+  brand:   { bg: '#eff6ff', fg: '#1e40af', bar: 'linear-gradient(90deg,#1e40af,#3b82f6)' },
+  success: { bg: '#ecfdf5', fg: '#059669', bar: 'linear-gradient(90deg,#059669,#10b981)' },
+  warning: { bg: '#fffbeb', fg: '#d97706', bar: 'linear-gradient(90deg,#d97706,#f59e0b)' },
+  danger:  { bg: '#fef2f2', fg: '#dc2626', bar: 'linear-gradient(90deg,#dc2626,#ef4444)' },
+  info:    { bg: '#f0f9ff', fg: '#0ea5e9', bar: 'linear-gradient(90deg,#0ea5e9,#38bdf8)' },
+  purple:  { bg: '#f5f3ff', fg: '#7c3aed', bar: 'linear-gradient(90deg,#7c3aed,#a78bfa)' },
 };
 
 export default function MetricCard({ title, value, subtitle, icon, accent = 'brand', trend }) {
   const c = ACCENTS[accent] || ACCENTS.brand;
   return (
-    <div className="kpi">
+    <div className="kpi" style={{ '--kpi-bar': c.bar }}>
       {icon && (
         <div className="kpi-icon" style={{ background: c.bg, color: c.fg }}>
           {icon}
@@ -26,32 +19,21 @@ export default function MetricCard({ title, value, subtitle, icon, accent = 'bra
       )}
       <div className="kpi-label">{title}</div>
       <div className="kpi-value">{value}</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-        {subtitle && <span className="kpi-sub">{subtitle}</span>}
+      <div className="kpi-sub">
+        {subtitle && <span>{subtitle}</span>}
         {trend && (
           <span style={{
-            fontSize: 12,
-            fontWeight: 600,
+            fontSize: 11,
+            fontWeight: 700,
             color: trend.dir === 'up' ? '#059669' : '#dc2626',
-            background: trend.dir === 'up' ? '#d1fae5' : '#fee2e2',
+            background: trend.dir === 'up' ? '#dcfce7' : '#fee2e2',
             padding: '2px 8px',
             borderRadius: 999,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 2,
           }}>
             {trend.dir === 'up' ? '▲' : '▼'} {trend.value}
           </span>
         )}
       </div>
-      <div style={{
-        position: 'absolute',
-        left: 0, top: 0, bottom: 0,
-        width: 3,
-        background: c.bar,
-        borderTopLeftRadius: 'var(--radius-md)',
-        borderBottomLeftRadius: 'var(--radius-md)',
-      }} />
     </div>
   );
 }
