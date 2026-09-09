@@ -1,17 +1,9 @@
-import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifySessionToken } from '@/lib/session';
+import { requireRoles } from '@/lib/auth-server';
 import sql from '@/lib/db';
 
 export async function GET(req) {
-  const store = await cookies();
-  const token = store.get('wm_session')?.value;
-  const session = verifySessionToken(token);
-
-  if (!session) return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 });
-  if (!['admin', 'gestor', 'rh'].includes(session.role)) {
-    return NextResponse.json({ error: 'Sem permissao' }, { status: 403 });
-  }
+  const session = await requireRoles(['admin', 'manager', 'gestor', 'rh']);
+  const company_id = session.company_id;
 
   const { searchParams } = new URL(req.url);
   const from   = searchParams.get('from') || '2000-01-01';
@@ -27,6 +19,7 @@ export async function GET(req) {
       FROM metrics_daily md
       JOIN users u ON u.id = md.user_id
       WHERE md.day >= ${from} AND md.day <= ${to}
+        AND u.company_id = ${company_id}
         AND u.team_id = ${teamId}
       ORDER BY md.day ASC
     `;
@@ -38,9 +31,10 @@ export async function GET(req) {
       FROM metrics_daily md
       JOIN users u ON u.id = md.user_id
       WHERE md.day >= ${from} AND md.day <= ${to}
+        AND u.company_id = ${company_id}
       ORDER BY md.day ASC
     `;
   }
 
-  return NextResponse.json({ ok: true, team_id: teamId || null, rows: data });
+  return Response.json({ ok: true, team_id: teamId || null, rows: data });
 }

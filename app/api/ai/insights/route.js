@@ -4,10 +4,23 @@ import Anthropic from '@anthropic-ai/sdk';
 
 export const maxDuration = 60;
 
-export async function GET() {
+// Cache em memoria por company_id: { ts, result }
+const _cache = new Map();
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutos
+
+export async function GET(req) {
   try {
     const session = await requireRoles(['admin', 'manager']);
     const company_id = session.company_id;
+
+    // Retornar cache se valido (a menos que ?refresh=1)
+    const forceRefresh = new URL(req.url).searchParams.get('refresh') === '1';
+    const cached = _cache.get(company_id);
+    if (!forceRefresh && cached && Date.now() - cached.ts < CACHE_TTL) {
+      return Response.json({ ok: true, ...cached.result, cached: true,
+        cached_at: new Date(cached.ts).toISOString() });
+    }
+
     const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
 
     const metrics = await sql`
@@ -41,9 +54,9 @@ export async function GET() {
     `;
 
     const urlMap = {};
-    for (const r of urls) {
-      if (!urlMap[r.user_id]) urlMap[r.user_id] = [];
-      if (urlMap[r.user_id].length < 5) urlMap[r.user_id].push(`${r.url_domain} (${r.visits}x)`);
+    for (const row of urls) {
+      if (!urlMap[row.user_id]) urlMap[row.user_id] = [];
+      if (urlMap[row.user_id].length < 5) urlMap[row.user_id].push(`${row.url_domain} (${row.visits}x)`);
     }
 
     const collaborators = metrics.map(m => {
@@ -89,6 +102,10 @@ export async function GET() {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) throw new Error('Resposta da IA fora do formato esperado');
     const result = JSON.parse(match[0]);
+
+    // Salvar no cache
+    _cache.set(company_id, { ts: Date.now(), result });
+
     return Response.json({ ok: true, ...result });
 
   } catch (err) {

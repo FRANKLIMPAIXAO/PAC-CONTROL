@@ -41,11 +41,12 @@ export default function PacIaPage() {
   const [error, setError]     = useState(null);
   const [lastRun, setLastRun] = useState(null);
 
-  const analyze = useCallback(async () => {
+  const analyze = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const res  = await fetch('/api/ai/insights');
+      const url  = force ? '/api/ai/insights?refresh=1' : '/api/ai/insights';
+      const res  = await fetch(url);
       const json = await res.json();
       if (!json.ok) throw new Error(json.error || 'Erro desconhecido');
       setData(json);
@@ -79,9 +80,16 @@ export default function PacIaPage() {
             </p>
           )}
         </div>
-        <button onClick={analyze} disabled={loading} style={{ width: 'auto', padding: '10px 24px', background: loading ? '#94a3b8' : 'linear-gradient(135deg,#6366f1,#0ea5e9)', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 14, border: 'none', borderRadius: 8, color: 'white' }}>
-          {loading ? 'Analisando...' : 'Analisar agora'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {data?.cached && (
+            <button onClick={() => analyze(true)} disabled={loading} title="Ignorar cache e gerar nova analise agora" style={{ width: 'auto', padding: '10px 18px', background: loading ? '#94a3b8' : '#f1f5f9', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 13, border: '1px solid #e2e8f0', borderRadius: 8, color: '#475569' }}>
+              &#8635; Forcar nova analise
+            </button>
+          )}
+          <button onClick={() => analyze(false)} disabled={loading} style={{ width: 'auto', padding: '10px 24px', background: loading ? '#94a3b8' : 'linear-gradient(135deg,#6366f1,#0ea5e9)', cursor: loading ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: 14, border: 'none', borderRadius: 8, color: 'white' }}>
+            {loading ? 'Analisando...' : 'Analisar agora'}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -105,6 +113,12 @@ export default function PacIaPage() {
 
       {!loading && data && (
         <>
+          {data.cached && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 14px' }}>
+              <span>&#128190;</span>
+              <span>Resultado em cache desde {data.cached_at ? new Date(data.cached_at).toLocaleTimeString('pt-BR') : '?'} &mdash; clique em &ldquo;Forcar nova analise&rdquo; para atualizar.</span>
+            </div>
+          )}
           {data.summary && (
             <div style={{ background: 'linear-gradient(135deg,#f0f4ff,#fafbff)', border: '1px solid #c7d2fe', borderRadius: 10, padding: '16px 20px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
               <span style={{ fontSize: 22, flexShrink: 0 }}>&#10022;</span>
