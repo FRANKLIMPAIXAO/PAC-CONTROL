@@ -1,17 +1,40 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas = []
 binaries = []
-hiddenimports = ['pynput.keyboard._win32', 'pynput.mouse._win32', 'PIL._imaging', 'imageio_ffmpeg']
+hiddenimports = [
+    'pynput.keyboard._win32',
+    'pynput.mouse._win32',
+    'PIL._imaging',
+    'imageio_ffmpeg',
+    # uiautomation: necessario para captura de URL do navegador no Windows
+    'uiautomation',
+    'uiautomation.uiautomation',
+    'comtypes',
+    'comtypes.client',
+    'comtypes.server',
+    'comtypes.automation',
+    'win32api',
+    'win32con',
+    'win32gui',
+]
+
 tmp_ret = collect_all('imageio')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
 tmp_ret = collect_all('imageio_ffmpeg')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+tmp_ret = collect_all('uiautomation')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+hiddenimports += collect_submodules('uiautomation')
+hiddenimports += collect_submodules('comtypes')
+
 
 a = Analysis(
-    ['C:\\Users\\pacpa\\OneDrive\\Documentos Escritorio\\.0 - IRRF TRANSMITIDAS\\1.BACKUP\\Área de Trabalho\\FAMILIA TRIBUTARIA 2026\\SISTEMAS\\monitoramento\\PAC-CONTROL-main\\agent-python\\main.py'],
+    ['main.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,

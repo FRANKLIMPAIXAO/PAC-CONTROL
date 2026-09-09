@@ -320,28 +320,40 @@ class DomainDetector:
 
 
     def _domain_windows(self, app_name):
-        """Captura URL do navegador ativo no Windows via UI Automation."""
+        """Captura URL do navegador ativo no Windows.
+
+        Tenta 3 estrategias em ordem de velocidade:
+        1. uiautomation (bundled no .exe)  — mais rapido
+        2. PowerShell .NET UIAutomation    — fallback sem dependencias extras
+        3. Titulo da janela                — ultimo recurso
+        """
+        if not app_name:
+            return None
+        app_lower = app_name.lower()
+
+        BROWSER_KEYS = ('chrome', 'msedge', 'firefox', 'brave', 'opera', 'vivaldi', 'arc')
+        is_browser = any(k in app_lower for k in BROWSER_KEYS)
+        if not is_browser:
+            return None
+
+        # ── 1. uiautomation ─────────────────────────────────────────────────
         try:
             import uiautomation as auto
-            if not app_name:
-                return None
-            app_lower = app_name.lower()
-            browser_configs = [
-                ('chrome',   ['Address and search bar', 'Barra de endereço e pesquisa']),
-                ('msedge',   ['Address and search bar', 'Barra de endereços e pesquisa']),
-                ('firefox',  ['Search with Google or enter address', 'Pesquisar ou inserir endereço']),
-                ('brave',    ['Address and search bar', 'Barra de endereço e pesquisa']),
-                ('opera',    ['Address and search bar']),
-            ]
-            matched = False
+            bar_names_by_browser = {
+                'chrome':  ['Address and search bar', 'Barra de endereço e pesquisa'],
+                'msedge':  ['Address and search bar', 'Barra de endereços e pesquisa', 'Barra de endereço e pesquisa'],
+                'firefox': ['Search with Google or enter address', 'Pesquisar ou inserir endereço', 'Barra de endereços'],
+                'brave':   ['Address and search bar', 'Barra de endereço e pesquisa'],
+                'opera':   ['Address and search bar'],
+                'vivaldi': ['Address and search bar'],
+                'arc':     ['Address and search bar'],
+            }
             search_names = []
-            for key, names in browser_configs:
+            for key, names in bar_names_by_browser.items():
                 if key in app_lower:
-                    matched = True
                     search_names = names
                     break
-            if not matched:
-                return None
+
             for name in search_names:
                 try:
                     edit = auto.EditControl(searchDepth=12, Name=name)
@@ -353,14 +365,58 @@ class DomainDetector:
                             return self._normalize_url(url)
                 except Exception:
                     continue
-            return None
         except ImportError:
-            if not getattr(self, '_warned_uiautomation', False):
-                print('[agent] aviso: uiautomation nao instalado - instale com: pip install uiautomation')
-                self._warned_uiautomation = True
-            return None
+            pass  # Cai para o fallback PowerShell
         except Exception:
-            return None
+            pass
+
+        # ── 2. PowerShell .NET UIAutomation (zero dependencia extra) ────────
+        try:
+            ps_script = r"""
+Add-Type -AssemblyName UIAutomationClient 2>$null
+Add-Type -AssemblyName UIAutomationTypes 2>$null
+$root = [System.Windows.Automation.AutomationElement]::RootElement
+$cond = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Edit)
+$scope = [System.Windows.Automation.TreeScope]::Descendants
+$focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+if ($focused -and $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit) {
+    $vp = $focused.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    if ($vp) { $vp.Current.Value; exit }
+}
+# Procura barra de endereco nas janelas abertas
+$wins = $root.FindAll([System.Windows.Automation.TreeScope]::Children,
+    [System.Windows.Automation.Condition]::TrueCondition)
+foreach ($w in $wins) {
+    $name = $w.Current.Name
+    if (-not $name) { continue }
+    $edits = $w.FindAll($scope, $cond)
+    foreach ($e in $edits) {
+        $en = $e.Current.Name
+        if ($en -match 'Address|endere|search bar|pesqui') {
+            $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+            if ($vp -and $vp.Current.Value -match '\.') { $vp.Current.Value; exit }
+        }
+    }
+}
+""".strip()
+            result = subprocess.run(
+                ['powershell', '-NonInteractive', '-WindowStyle', 'Hidden',
+                 '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
+                capture_output=True, timeout=3, text=True,
+            )
+            url = (result.stdout or '').strip()
+            if url and '.' in url:
+                if '://' not in url:
+                    url = 'https://' + url
+                domain = self._normalize_url(url)
+                if domain:
+                    return domain
+        except Exception:
+            pass
+
+        return None
 
     def _run_osascript(self, script: str) -> Optional[str]:
         try:

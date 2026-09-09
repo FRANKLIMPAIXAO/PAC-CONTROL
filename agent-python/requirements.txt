@@ -8,3 +8,5 @@ numpy>=1.21.0
 imageio>=2.31.0
 imageio-ffmpeg>=0.4.9
 uiautomation>=2.0.18; platform_system == "Windows"
+pywin32>=306; platform_system == "Windows"
+comtypes>=1.2.0; platform_system == "Windows"
