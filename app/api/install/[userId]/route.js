@@ -109,19 +109,15 @@ $cfg = [ordered]@{
   screenshot_only_when_active = $true
   enable_recordings           = $false
 }
-$cfg | ConvertTo-Json -Depth 3 | Set-Content "$AgentDir\\config.json" -Encoding UTF8
+# UTF-8 sem BOM: o json do Python rejeita BOM
+[System.IO.File]::WriteAllText("$AgentDir\\config.json", ($cfg | ConvertTo-Json -Depth 3), (New-Object System.Text.UTF8Encoding $false))
 Write-OK "config.json criado."
+Remove-Item "$AgentDir\\start-agent.vbs" -ErrorAction SilentlyContinue
 
-# Wrapper VBS silencioso (sem janela preta)
+# pythonw.exe roda sem janela
 $pyPath = (& $py -c "import sys; print(sys.executable)" 2>&1).Trim()
 $wpy = $pyPath -replace "python\.exe$","pythonw.exe"
 if (-not (Test-Path $wpy)) { $wpy = $pyPath }
-@"
-Set sh = CreateObject("WScript.Shell")
-sh.CurrentDirectory = "$AgentDir"
-sh.Environment("Process")("PAC_AGENT_CONFIG") = "$AgentDir\config.json"
-sh.Run """$wpy"" ""$AgentDir\main.py""", 0, False
-"@ | Set-Content "$AgentDir\\start-agent.vbs" -Encoding UTF8
 
 Write-Step "Registrando no Task Scheduler..."
 $u = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -141,7 +137,7 @@ $xml = @"
     <Enabled>true</Enabled>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>wscript.exe</Command><Arguments>"$AgentDir\\start-agent.vbs"</Arguments><WorkingDirectory>$AgentDir</WorkingDirectory></Exec>
+    <Exec><Command>"$wpy"</Command><Arguments>"$AgentDir\\main.py"</Arguments><WorkingDirectory>$AgentDir</WorkingDirectory></Exec>
   </Actions>
 </Task>
 "@
