@@ -1,9 +1,8 @@
-import MetricCard from '@/app/components/metric-card';
 import HourlyTimeline from '@/app/components/charts/hourly-timeline';
-import CompositionDonut from '@/app/components/charts/composition-donut';
+import ProductivityGauge from '@/app/components/charts/productivity-gauge';
 import { requireSession } from '@/lib/auth-server';
 import sql from '@/lib/db';
-import { formatDuration, pct } from '@/lib/format';
+import { formatDuration } from '@/lib/format';
 
 /* ── Demo ───────────────────────────────────────────────────── */
 const DEMO_METRICS = [
@@ -14,11 +13,11 @@ const DEMO_METRICS = [
   { user_id:'u5', productive_sec:16200, neutral_sec:4800, unproductive_sec:2400, idle_sec:4200 },
 ];
 const DEMO_TEAM = [
-  { id:'u1', name:'Ana Paula',      lastSeenMin:2,  isIdle:false, productive:18200, total:28100 },
-  { id:'u2', name:'Carlos Lima',    lastSeenMin:1,  isIdle:false, productive:21600, total:28400 },
-  { id:'u3', name:'Fernanda Costa', lastSeenMin:4,  isIdle:true,  productive:14400, total:28800 },
-  { id:'u4', name:'Rafael Souza',   lastSeenMin:0,  isIdle:false, productive:25200, total:30300 },
-  { id:'u5', name:'Juliana Mendes', lastSeenMin:62, isIdle:false, productive:16200, total:27600 },
+  { id:'u1', name:'Ana Paula',      lastSeenMin:2,  isIdle:false, productive:18200, neutral:4500, unproductive:1800, idle:3600  },
+  { id:'u2', name:'Carlos Lima',    lastSeenMin:1,  isIdle:false, productive:21600, neutral:3200, unproductive:900,  idle:2700  },
+  { id:'u3', name:'Fernanda Costa', lastSeenMin:4,  isIdle:true,  productive:14400, neutral:5400, unproductive:3600, idle:5400  },
+  { id:'u4', name:'Rafael Souza',   lastSeenMin:0,  isIdle:false, productive:25200, neutral:2700, unproductive:600,  idle:1800  },
+  { id:'u5', name:'Juliana Mendes', lastSeenMin:62, isIdle:false, productive:16200, neutral:4800, unproductive:2400, idle:4200  },
 ];
 const DEMO_TIMELINE = [
   { hour:8,  productive:2400, neutral:600,  unproductive:0,   idle:600  },
@@ -43,25 +42,10 @@ function hashColor(name='') {
 function initials(name='') {
   return name.split(' ').filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 }
-function statusOf(member) {
-  if (member.lastSeenMin > 10) return { label:'Offline', cls:'offline', color:'#9ca3af' };
-  if (member.isIdle)           return { label:'Ocioso',  cls:'idle',    color:'#d97706' };
-  return                              { label:'Online',  cls:'online',  color:'#059669' };
-}
-function focoPct(productive, total) {
-  if (!total) return 0;
-  return Math.round(productive / total * 100);
-}
-function focoBg(pct) {
-  if (pct >= 70) return 'linear-gradient(90deg,#059669,#10b981)';
-  if (pct >= 50) return 'linear-gradient(90deg,#d97706,#f59e0b)';
-  return 'linear-gradient(90deg,#dc2626,#ef4444)';
-}
-
-function defaultRange() {
-  const to   = new Date();
-  const from = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
-  return { from: from.toISOString().slice(0,10), to: to.toISOString().slice(0,10) };
+function statusOf(m) {
+  if (m.lastSeenMin > 10) return { label:'Offline', dot:'#9ca3af', bg:'#f3f4f6', text:'#6b7280' };
+  if (m.isIdle)           return { label:'Ocioso',  dot:'#d97706', bg:'#fffbeb', text:'#92400e' };
+  return                         { label:'Online',  dot:'#059669', bg:'#ecfdf5', text:'#065f46' };
 }
 
 const APP_TZ = 'America/Sao_Paulo';
@@ -70,11 +54,13 @@ const APP_TZ = 'America/Sao_Paulo';
 export default async function DashboardPage({ searchParams }) {
   const session = await requireSession();
   const params  = await searchParams;
-  const range   = defaultRange();
-  const from    = params?.from || range.from;
-  const to      = params?.to   || range.to;
 
-  /* Métricas do período */
+  const toDate   = new Date();
+  const fromDate = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+  const from     = params?.from || fromDate.toISOString().slice(0,10);
+  const to       = params?.to   || toDate.toISOString().slice(0,10);
+
+  /* ── Métricas do período ── */
   let data;
   if (process.env.DEMO_MODE === 'true') {
     data = DEMO_METRICS;
@@ -99,11 +85,10 @@ export default async function DashboardPage({ searchParams }) {
     }),
     { productive:0, neutral:0, unproductive:0, idle:0 }
   );
-
   const active = totals.productive + totals.neutral + totals.unproductive;
   const focus  = active > 0 ? (totals.productive / active) * 100 : 0;
 
-  /* Equipe agora */
+  /* ── Equipe agora ── */
   let team     = [];
   let timeline = [];
 
@@ -112,7 +97,6 @@ export default async function DashboardPage({ searchParams }) {
     timeline = DEMO_TIMELINE;
   } else if (session.role === 'admin' || session.role === 'manager') {
     try {
-      /* Busca último heartbeat + métricas de hoje por usuário */
       const devices = await sql`
         SELECT DISTINCT ON (u.id)
                u.id, u.name,
@@ -124,8 +108,6 @@ export default async function DashboardPage({ searchParams }) {
           AND u.status = 'active' AND u.role != 'admin'
         ORDER BY u.id, d.last_seen_at DESC
       `;
-
-      /* Métricas de hoje para score de foco */
       const today = new Date().toISOString().slice(0,10);
       const todayMetrics = await sql`
         SELECT md.user_id,
@@ -139,20 +121,20 @@ export default async function DashboardPage({ searchParams }) {
           AND md.day = ${today}
         GROUP BY md.user_id
       `;
-      const metricsMap = {};
-      for (const m of todayMetrics) metricsMap[m.user_id] = m;
+      const mm = {};
+      for (const m of todayMetrics) mm[m.user_id] = m;
 
       team = devices.map(d => {
-        const m = metricsMap[d.id] || {};
-        const prod  = Number(m.prod    || 0);
-        const tot   = prod + Number(m.neutral || 0) + Number(m.unprod || 0) + Number(m.idle || 0);
+        const m = mm[d.id] || {};
         return {
           id:          d.id,
           name:        d.name,
           lastSeenMin: Math.round(Number(d.last_seen_min ?? 9999)),
           isIdle:      Boolean(d.is_idle),
-          productive:  prod,
-          total:       tot,
+          productive:  Number(m.prod    || 0),
+          neutral:     Number(m.neutral || 0),
+          unproductive:Number(m.unprod  || 0),
+          idle:        Number(m.idle    || 0),
         };
       });
     } catch { /* sem dispositivos */ }
@@ -160,9 +142,9 @@ export default async function DashboardPage({ searchParams }) {
     try {
       const rows = await sql`
         SELECT
-          EXTRACT(HOUR FROM (er.ts AT TIME ZONE ${APP_TZ}))::int      AS hour,
-          COUNT(*) FILTER (WHERE NOT er.is_idle)::int                  AS productive,
-          COUNT(*) FILTER (WHERE er.is_idle)::int                      AS idle
+          EXTRACT(HOUR FROM (er.ts AT TIME ZONE ${APP_TZ}))::int AS hour,
+          COUNT(*) FILTER (WHERE NOT er.is_idle)::int             AS productive,
+          COUNT(*) FILTER (WHERE er.is_idle)::int                 AS idle
         FROM events_raw er
         JOIN users u ON u.id = er.user_id
         WHERE u.company_id = ${session.company_id}
@@ -171,7 +153,7 @@ export default async function DashboardPage({ searchParams }) {
         GROUP BY 1 ORDER BY 1
       `;
       timeline = rows.map(h => ({
-        hour: h.hour,
+        hour:         h.hour,
         productive:   Number(h.productive) * 10,
         neutral:      0,
         unproductive: 0,
@@ -186,30 +168,35 @@ export default async function DashboardPage({ searchParams }) {
 
   const today = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long' });
 
+  /* ordena: online primeiro, depois ocioso, depois offline */
+  const teamSorted = [...online, ...idleArr, ...offline];
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:24 }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
 
       {/* ── Header ── */}
       <div className="page-header">
         <div>
-          <h1 style={{ margin:0, color:'#0d1117' }}>Painel operacional</h1>
-          <p className="muted" style={{ margin:'4px 0 0', fontSize:13, textTransform:'capitalize' }}>
-            {today} &mdash; Periodo: {from} ate {to}
+          <h1 style={{ margin:0, color:'#0d1117', fontSize:20, fontWeight:800 }}>Painel operacional</h1>
+          <p className="muted" style={{ margin:'3px 0 0', fontSize:12, textTransform:'capitalize' }}>
+            {today} &mdash; Período: {from} a {to}
           </p>
         </div>
-        <div className="page-actions">
-          <span className="badge badge-success" style={{ fontSize:12, padding:'5px 12px' }}>
-            <span style={{ width:7, height:7, borderRadius:'50%', background:'#059669', display:'inline-block' }} />
-            {online.length} online
-          </span>
-          <span className="badge badge-warning" style={{ fontSize:12, padding:'5px 12px' }}>
-            <span style={{ width:7, height:7, borderRadius:'50%', background:'#d97706', display:'inline-block' }} />
-            {idleArr.length} ocioso
-          </span>
-          <span className="badge" style={{ fontSize:12, padding:'5px 12px' }}>
-            <span style={{ width:7, height:7, borderRadius:'50%', background:'#9ca3af', display:'inline-block' }} />
-            {offline.length} offline
-          </span>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          {[
+            { label:'Online',  count:online.length,  color:'#059669', bg:'#ecfdf5' },
+            { label:'Ocioso',  count:idleArr.length, color:'#d97706', bg:'#fffbeb' },
+            { label:'Offline', count:offline.length, color:'#9ca3af', bg:'#f9fafb' },
+          ].map(s => (
+            <div key={s.label} style={{
+              display:'flex', alignItems:'center', gap:6, fontWeight:600,
+              background:s.bg, padding:'5px 14px', borderRadius:999,
+              fontSize:12, color:s.color, border:`1px solid ${s.color}22`,
+            }}>
+              <span style={{ width:8, height:8, borderRadius:'50%', background:s.color }} />
+              {s.label}: <strong>{s.count}</strong>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -219,7 +206,7 @@ export default async function DashboardPage({ searchParams }) {
           <span className="alert-icon">⚠️</span>
           <div>
             <div style={{ fontWeight:700, marginBottom:8 }}>
-              {idleArr.length} colaborador{idleArr.length > 1?'es':''} ocioso{idleArr.length > 1?'s':''} ha mais de 5 min
+              {idleArr.length} colaborador{idleArr.length > 1?'es':''} ocioso{idleArr.length > 1?'s':''} há mais de 5 min
             </div>
             <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
               {idleArr.map(m => (
@@ -229,7 +216,7 @@ export default async function DashboardPage({ searchParams }) {
                 }}>
                   <span style={{
                     width:22, height:22, borderRadius:'50%',
-                    background: hashColor(m.name), color:'#fff',
+                    background:hashColor(m.name), color:'#fff',
                     display:'flex', alignItems:'center', justifyContent:'center',
                     fontSize:9, fontWeight:700,
                   }}>{initials(m.name)}</span>
@@ -241,100 +228,89 @@ export default async function DashboardPage({ searchParams }) {
         </div>
       )}
 
-      {/* ── KPIs ── */}
-      <div className="grid grid-4">
-        <MetricCard
-          title="Tempo produtivo"
-          value={formatDuration(totals.productive)}
-          subtitle={`Periodo: ${from} a ${to}`}
-          icon="⚡"
-          accent="brand"
-        />
-        <MetricCard
-          title="Indice de foco"
-          value={pct(focus)}
-          subtitle="Produtivo / ativo"
-          icon="🎯"
-          accent={focus >= 70 ? 'success' : focus >= 50 ? 'warning' : 'danger'}
-        />
-        <MetricCard
-          title="Tempo ocioso"
-          value={formatDuration(totals.idle)}
-          subtitle="Inatividade acumulada"
-          icon="⏸"
-          accent="warning"
-        />
-        <MetricCard
-          title="Improdutivo"
-          value={formatDuration(totals.unproductive)}
-          subtitle="Fora do escopo"
-          icon="🚫"
-          accent="danger"
-        />
+      {/* ── KPIs + Gauge ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr auto', gap:16, alignItems:'stretch' }}>
+        {/* KPI produtivo */}
+        <div className="card" style={{ padding:'18px 20px' }}>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em', color:'#6b7280', marginBottom:10 }}>
+            ⚡ Tempo produtivo
+          </div>
+          <div style={{ fontSize:28, fontWeight:800, color:'#059669', lineHeight:1.1 }}>
+            {formatDuration(totals.productive)}
+          </div>
+          <div style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>Período: {from} a {to}</div>
+          <div style={{ marginTop:10, height:4, borderRadius:999, background:'#e5e7eb', overflow:'hidden' }}>
+            <div style={{ height:'100%', borderRadius:999, background:'#059669', width:`${Math.min(100,focus)}%` }} />
+          </div>
+        </div>
+
+        {/* KPI ocioso */}
+        <div className="card" style={{ padding:'18px 20px' }}>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em', color:'#6b7280', marginBottom:10 }}>
+            ⏸ Tempo ocioso
+          </div>
+          <div style={{ fontSize:28, fontWeight:800, color:'#d97706', lineHeight:1.1 }}>
+            {formatDuration(totals.idle)}
+          </div>
+          <div style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>Inatividade acumulada</div>
+          <div style={{ marginTop:10, height:4, borderRadius:999, background:'#e5e7eb', overflow:'hidden' }}>
+            <div style={{ height:'100%', borderRadius:999, background:'#d97706',
+              width:`${active+totals.idle > 0 ? Math.min(100, totals.idle/(active+totals.idle)*100) : 0}%` }} />
+          </div>
+        </div>
+
+        {/* KPI improdutivo */}
+        <div className="card" style={{ padding:'18px 20px' }}>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em', color:'#6b7280', marginBottom:10 }}>
+            🚫 Improdutivo
+          </div>
+          <div style={{ fontSize:28, fontWeight:800, color:'#dc2626', lineHeight:1.1 }}>
+            {formatDuration(totals.unproductive)}
+          </div>
+          <div style={{ fontSize:11, color:'#9ca3af', marginTop:6 }}>Fora do escopo</div>
+          <div style={{ marginTop:10, height:4, borderRadius:999, background:'#e5e7eb', overflow:'hidden' }}>
+            <div style={{ height:'100%', borderRadius:999, background:'#dc2626',
+              width:`${active > 0 ? Math.min(100, totals.unproductive/active*100) : 0}%` }} />
+          </div>
+        </div>
+
+        {/* Gauge */}
+        <div className="card" style={{ padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <ProductivityGauge value={focus} size={160} />
+        </div>
       </div>
 
-      {/* ── Graficos ── */}
-      <div className="split-layout">
-        <div className="card">
-          <div className="section-title">
-            📊 Atividade por hora — hoje
-            {timeline.length > 0 && (
-              <span className="section-title-sub badge badge-success" style={{ borderRadius:999, fontSize:11 }}>
-                {timeline.length} horas com dados
-              </span>
-            )}
-          </div>
-          {timeline.length === 0 ? (
-            <div className="empty-state" style={{ padding:'32px 0' }}>
-              <div className="empty-state-icon">📭</div>
-              <div className="empty-state-title">Sem atividade registrada hoje ainda</div>
-              <div className="empty-state-sub">Os dados aparecem assim que o agente enviar heartbeats</div>
-            </div>
-          ) : (
-            <HourlyTimeline data={timeline} />
+      {/* ── Atividade por hora ── */}
+      <div className="card">
+        <div className="section-title">
+          📊 Atividade por hora — hoje
+          {timeline.length > 0 && (
+            <span className="section-title-sub badge badge-success" style={{ borderRadius:999, fontSize:11 }}>
+              {timeline.length} horas com dados
+            </span>
           )}
         </div>
-        <div className="card">
-          <div className="section-title">🥧 Composicao geral</div>
-          <CompositionDonut
-            productive={totals.productive}
-            neutral={totals.neutral}
-            unproductive={totals.unproductive}
-            idle={totals.idle}
-          />
-        </div>
+        {timeline.length === 0 ? (
+          <div className="empty-state" style={{ padding:'28px 0' }}>
+            <div className="empty-state-icon">📭</div>
+            <div className="empty-state-title">Sem atividade registrada hoje ainda</div>
+            <div className="empty-state-sub">Os dados aparecem assim que o agente enviar heartbeats</div>
+          </div>
+        ) : (
+          <HourlyTimeline data={timeline} />
+        )}
       </div>
 
-      {/* ── Equipe agora — cards estilo WorkMonitor ── */}
-      <div className="card">
-        <div className="flex-between" style={{ marginBottom:20 }}>
-          <div>
-            <div className="section-title" style={{ marginBottom:4 }}>
-              👥 Equipe agora
-            </div>
-            <p className="muted" style={{ fontSize:12, margin:0 }}>
-              Status em tempo real via heartbeat do agente desktop (&lt;10 min = ativo)
-            </p>
-          </div>
-          <div style={{ display:'flex', gap:16, fontSize:12 }}>
-            {[
-              { label:'Online',  count:online.length,  color:'#059669', bg:'#ecfdf5' },
-              { label:'Ocioso',  count:idleArr.length, color:'#d97706', bg:'#fffbeb' },
-              { label:'Offline', count:offline.length, color:'#9ca3af', bg:'#f9fafb' },
-            ].map(s => (
-              <div key={s.label} style={{
-                display:'flex', alignItems:'center', gap:6, fontWeight:600,
-                background:s.bg, padding:'4px 12px', borderRadius:999,
-                fontSize:12, color:s.color,
-              }}>
-                <span style={{ width:8, height:8, borderRadius:'50%', background:s.color }} />
-                {s.label}: <strong>{s.count}</strong>
-              </div>
-            ))}
-          </div>
+      {/* ── Equipe agora — tabela estilo WorkMonitor ── */}
+      <div className="card" style={{ padding:0, overflow:'hidden' }}>
+        <div style={{ padding:'18px 22px 14px', borderBottom:'1px solid #e5e7eb' }}>
+          <div className="section-title" style={{ marginBottom:3 }}>👥 Equipe agora</div>
+          <p className="muted" style={{ fontSize:12, margin:0 }}>
+            Status em tempo real via heartbeat do agente (&lt;10 min = ativo)
+          </p>
         </div>
 
-        {team.length === 0 ? (
+        {teamSorted.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">🖥️</div>
             <div className="empty-state-title">Nenhum agente conectado ainda</div>
@@ -343,60 +319,177 @@ export default async function DashboardPage({ searchParams }) {
             </div>
           </div>
         ) : (
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:12 }}>
-            {team.map(member => {
-              const s    = statusOf(member);
-              const foco = focoPct(member.productive, member.total);
-              const clr  = hashColor(member.name);
-              return (
-                <div key={member.id} className="user-card">
-                  {/* Header */}
-                  <div className="user-card-header">
-                    <div className="user-card-avatar">
-                      <div style={{
-                        width:44, height:44, borderRadius:'50%',
-                        background:clr, color:'#fff',
-                        display:'flex', alignItems:'center', justifyContent:'center',
-                        fontSize:14, fontWeight:800,
-                      }}>{initials(member.name)}</div>
-                      <span style={{
-                        position:'absolute', right:-1, bottom:-1,
-                        width:14, height:14, borderRadius:'50%',
-                        background:s.color, border:'2px solid #fff',
-                      }} />
-                    </div>
-                    <div className="user-card-info">
-                      <div className="user-card-name">{member.name}</div>
-                      <div className={`user-card-status ${s.cls}`}>
-                        {s.label}
-                        {member.lastSeenMin <= 10 ? ` · ${member.lastSeenMin}m` : ` · ${member.lastSeenMin >= 60 ? Math.floor(member.lastSeenMin/60)+'h' : member.lastSeenMin+'m'}`}
-                      </div>
-                    </div>
-                  </div>
+          <div className="table-wrap">
+            <table className="table" style={{ tableLayout:'fixed' }}>
+              <colgroup>
+                <col style={{ width:'220px' }} />
+                <col style={{ width:'90px' }} />
+                <col style={{ width:'100px' }} />
+                <col style={{ width:'100px' }} />
+                <col style={{ width:'100px' }} />
+                <col style={{ width:'100px' }} />
+                <col style={{ minWidth:'160px' }} />
+                <col style={{ width:'80px' }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Colaborador</th>
+                  <th>Status</th>
+                  <th>Produtivo</th>
+                  <th>Neutro</th>
+                  <th>Improdutivo</th>
+                  <th>Ocioso</th>
+                  <th>Distribuição</th>
+                  <th style={{ textAlign:'center' }}>Foco</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamSorted.map(m => {
+                  const s    = statusOf(m);
+                  const clr  = hashColor(m.name);
+                  const tot  = m.productive + m.neutral + m.unproductive + m.idle;
+                  const foco = tot > 0 ? Math.round(m.productive / (m.productive + m.neutral + m.unproductive) * 100) : 0;
+                  const focoColor = foco >= 70 ? '#059669' : foco >= 50 ? '#d97706' : '#dc2626';
+                  const lastLabel = m.lastSeenMin >= 60
+                    ? `${Math.floor(m.lastSeenMin/60)}h atrás`
+                    : m.lastSeenMin <= 0 ? 'agora'
+                    : `${m.lastSeenMin}m atrás`;
 
-                  {/* Score de foco hoje */}
-                  {member.total > 0 && (
-                    <div className="score-bar-wrap">
-                      <div className="score-bar-label">
-                        <span>Foco hoje</span>
-                        <span style={{ fontWeight:700, color: foco >= 70 ? '#059669' : foco >= 50 ? '#d97706' : '#dc2626' }}>
-                          {foco}%
+                  /* barras de distribuição */
+                  const pProd  = tot > 0 ? m.productive    / tot * 100 : 0;
+                  const pNeut  = tot > 0 ? m.neutral        / tot * 100 : 0;
+                  const pUnprod= tot > 0 ? m.unproductive   / tot * 100 : 0;
+                  const pIdle  = tot > 0 ? m.idle           / tot * 100 : 0;
+
+                  return (
+                    <tr key={m.id}>
+                      {/* Nome */}
+                      <td>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                          <div style={{ position:'relative', flexShrink:0 }}>
+                            <div style={{
+                              width:36, height:36, borderRadius:'50%',
+                              background:clr, color:'#fff',
+                              display:'flex', alignItems:'center', justifyContent:'center',
+                              fontSize:12, fontWeight:800,
+                            }}>{initials(m.name)}</div>
+                            <span style={{
+                              position:'absolute', right:-1, bottom:-1,
+                              width:11, height:11, borderRadius:'50%',
+                              background:s.dot, border:'2px solid #fff',
+                            }} />
+                          </div>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontWeight:600, fontSize:13, color:'#0d1117', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {m.name}
+                            </div>
+                            <div style={{ fontSize:11, color:'#9ca3af' }}>{lastLabel}</div>
+                          </div>
+                        </div>
+                      </td>
+                      {/* Status */}
+                      <td>
+                        <span style={{
+                          display:'inline-flex', alignItems:'center', gap:5,
+                          fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:999,
+                          background:s.bg, color:s.text,
+                        }}>
+                          <span style={{ width:6, height:6, borderRadius:'50%', background:s.dot }} />
+                          {s.label}
                         </span>
-                      </div>
-                      <div className="score-bar-track">
-                        <div className="score-bar-fill" style={{
-                          width:`${Math.min(foco,100)}%`,
-                          background: focoBg(foco),
-                        }} />
-                      </div>
-                      <div style={{ fontSize:11, color:'#9ca3af' }}>
-                        Prod: {formatDuration(member.productive)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                      </td>
+                      {/* Tempos */}
+                      <td style={{ fontWeight:600, color:'#059669', fontSize:13 }}>
+                        {tot > 0 ? formatDuration(m.productive) : '—'}
+                      </td>
+                      <td style={{ color:'#6b7280', fontSize:13 }}>
+                        {tot > 0 ? formatDuration(m.neutral) : '—'}
+                      </td>
+                      <td style={{ fontWeight:600, color:'#dc2626', fontSize:13 }}>
+                        {tot > 0 ? formatDuration(m.unproductive) : '—'}
+                      </td>
+                      <td style={{ color:'#d97706', fontSize:13 }}>
+                        {tot > 0 ? formatDuration(m.idle) : '—'}
+                      </td>
+                      {/* Barra distribuição */}
+                      <td>
+                        {tot > 0 ? (
+                          <div style={{ display:'flex', height:20, borderRadius:6, overflow:'hidden', gap:1 }}>
+                            {pProd > 0 && (
+                              <div title={`Produtivo ${Math.round(pProd)}%`} style={{
+                                width:`${pProd}%`, background:'#059669',
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                fontSize:10, color:'#fff', fontWeight:700, minWidth:pProd>8?0:'auto',
+                              }}>
+                                {pProd >= 12 ? `${Math.round(pProd)}%` : ''}
+                              </div>
+                            )}
+                            {pNeut > 0 && (
+                              <div title={`Neutro ${Math.round(pNeut)}%`} style={{
+                                width:`${pNeut}%`, background:'#3b82f6',
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                fontSize:10, color:'#fff', fontWeight:700,
+                              }}>
+                                {pNeut >= 12 ? `${Math.round(pNeut)}%` : ''}
+                              </div>
+                            )}
+                            {pUnprod > 0 && (
+                              <div title={`Improdutivo ${Math.round(pUnprod)}%`} style={{
+                                width:`${pUnprod}%`, background:'#dc2626',
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                fontSize:10, color:'#fff', fontWeight:700,
+                              }}>
+                                {pUnprod >= 12 ? `${Math.round(pUnprod)}%` : ''}
+                              </div>
+                            )}
+                            {pIdle > 0 && (
+                              <div title={`Ocioso ${Math.round(pIdle)}%`} style={{
+                                width:`${pIdle}%`, background:'#e5e7eb',
+                              }} />
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color:'#d1d5db', fontSize:12 }}>Sem dados hoje</span>
+                        )}
+                      </td>
+                      {/* Score foco */}
+                      <td style={{ textAlign:'center' }}>
+                        {tot > 0 ? (
+                          <div style={{
+                            display:'inline-flex', flexDirection:'column', alignItems:'center', gap:2,
+                          }}>
+                            <span style={{ fontSize:16, fontWeight:800, color:focoColor }}>
+                              {foco}%
+                            </span>
+                            <span style={{ fontSize:10, color:'#9ca3af', fontWeight:500 }}>foco</span>
+                          </div>
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Legenda */}
+        {teamSorted.length > 0 && (
+          <div style={{
+            padding:'10px 22px', borderTop:'1px solid #f3f4f6',
+            display:'flex', gap:16, flexWrap:'wrap',
+          }}>
+            {[
+              { color:'#059669', label:'Produtivo' },
+              { color:'#3b82f6', label:'Neutro' },
+              { color:'#dc2626', label:'Improdutivo' },
+              { color:'#e5e7eb', label:'Ocioso', text:'#9ca3af' },
+            ].map(l => (
+              <div key={l.label} style={{ display:'flex', alignItems:'center', gap:6, fontSize:11, color:l.text||'#6b7280' }}>
+                <span style={{ width:12, height:12, borderRadius:3, background:l.color, display:'inline-block' }} />
+                {l.label}
+              </div>
+            ))}
           </div>
         )}
       </div>
