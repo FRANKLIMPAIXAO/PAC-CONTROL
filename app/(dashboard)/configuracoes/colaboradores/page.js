@@ -155,12 +155,8 @@ export default function ColaboradoresPage() {
     setInstallModal({ userId, name, cmd });
   }
 
-  function copyInstallCmd(cmd) {
-    navigator.clipboard.writeText(cmd).then(() => {
-      setTopMsg({ type: 'ok', text: 'Comando copiado!' });
-    }).catch(() => {
-      setTopMsg({ type: 'ok', text: 'Selecione e copie o comando acima (Ctrl+C).' });
-    });
+  function selectInstallCmd(e) {
+    e.target.select();
   }
 
   return (
@@ -267,25 +263,23 @@ export default function ColaboradoresPage() {
             <p style={{ color: '#374151', fontSize: 14, marginBottom: 8 }}>
               No PC de <strong>{installModal.name}</strong>, abra o <strong>PowerShell</strong> e cole o comando abaixo:
             </p>
-            <div style={{ position: 'relative' }}>
-              <input
-                readOnly
-                value={installModal.cmd}
-                onFocus={e => e.target.select()}
-                style={{
-                  width: '100%', fontFamily: 'monospace', fontSize: 13,
-                  background: '#1e1e2e', color: '#a6e3a1', padding: '12px 14px',
-                  borderRadius: 6, border: 'none', boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => copyInstallCmd(installModal.cmd)}
-                style={{ width: 'auto', padding: '10px 20px', background: '#7c3aed' }}
-              >
-                Copiar comando
-              </button>
+            <textarea
+              readOnly
+              value={installModal.cmd}
+              onClick={selectInstallCmd}
+              onFocus={selectInstallCmd}
+              rows={2}
+              style={{
+                width: '100%', fontFamily: 'monospace', fontSize: 13,
+                background: '#1e1e2e', color: '#a6e3a1', padding: '12px 14px',
+                borderRadius: 6, border: 'none', boxSizing: 'border-box',
+                resize: 'none', cursor: 'text',
+              }}
+            />
+            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 8, marginBottom: 0 }}>
+              Clique no campo acima para selecionar tudo, depois pressione <strong>Ctrl+C</strong>.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
               <button
                 onClick={() => setInstallModal(null)}
                 style={{ width: 'auto', padding: '10px 20px', background: '#6b7280' }}
