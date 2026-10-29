@@ -1,7 +1,7 @@
 import sql from '@/lib/db';
 
-const EXE_URL =
-  'https://github.com/FRANKLIMPAIXAO/PAC-CONTROL/releases/latest/download/PACControlAgent.exe';
+const MAIN_PY_URL =
+  'https://raw.githubusercontent.com/FRANKLIMPAIXAO/PAC-CONTROL/main/agent-python/main.py';
 
 export async function GET(req, { params }) {
   const { userId } = params;
@@ -24,7 +24,7 @@ export async function GET(req, { params }) {
   const proto = req.headers.get('x-forwarded-proto') || 'http';
   const apiBaseUrl = `${proto}://${host}`;
 
-  return new Response(generateScript({ userId, token, apiBaseUrl }), {
+  return new Response(generateScript({ userId, token, apiBaseUrl, mainPyUrl: MAIN_PY_URL }), {
     status: 200,
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
@@ -33,20 +33,20 @@ export async function GET(req, { params }) {
   });
 }
 
-function generateScript({ userId, token, apiBaseUrl }) {
+function generateScript({ userId, token, apiBaseUrl, mainPyUrl }) {
   return `#Requires -Version 5.1
 # PAC CONTROL Agent - Instalador automatico
+# Gerado pelo painel PAC CONTROL
 
-$AgentDir = "C:\\PACControlAgent"
-$ExeName  = "PACControlAgent.exe"
-$TaskName = "PACControlAgent"
-$ExeUrl   = "${EXE_URL}"
+$AgentDir   = "C:\\PACControlAgent"
+$TaskName   = "PACControlAgent"
+$MainPyUrl  = "${mainPyUrl}"
 $ApiToken   = "${token}"
 $UserId     = "${userId}"
 $ApiBaseUrl = "${apiBaseUrl}"
 
 function Write-Step { param([string]$M) Write-Host "  >> $M" -ForegroundColor Cyan }
-function Write-OK   { param([string]$M) Write-Host "  OK $M" -ForegroundColor Green }
+function Write-OK   { param([string]$M) Write-Host "  OK: $M" -ForegroundColor Green }
 function Write-Fail { param([string]$M) Write-Host "  ERRO: $M" -ForegroundColor Red; exit 1 }
 
 Write-Host ""
@@ -55,30 +55,38 @@ Write-Host "   PAC CONTROL Agent - Instalacao      " -ForegroundColor Cyan
 Write-Host "=======================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Para versao anterior sem gerar erro se nao existir
-Write-Step "Parando agente anterior (se houver)..."
-$prevErr = $ErrorActionPreference
-$ErrorActionPreference = "SilentlyContinue"
+# Para agente anterior
+$prevErr = $ErrorActionPreference; $ErrorActionPreference = "SilentlyContinue"
 schtasks /End    /TN $TaskName | Out-Null
 schtasks /Delete /TN $TaskName /F | Out-Null
-Get-Process -Name "PACControlAgent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 $ErrorActionPreference = $prevErr
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 1
 
 Write-Step "Criando diretorio..."
 if (-not (Test-Path $AgentDir)) { New-Item -ItemType Directory -Path $AgentDir | Out-Null }
 
-Write-Step "Baixando $ExeName..."
+# Verifica Python
+Write-Step "Verificando Python..."
+$py = $null
+foreach ($c in @("python","py","python3")) {
+  try {
+    $v = & $c --version 2>&1
+    if ($v -match "Python 3\\.([89]|1[0-9])") { $py = $c; break }
+  } catch {}
+}
+if (-not $py) { Write-Fail "Python 3.9+ nao encontrado. Instale em https://python.org marcando 'Add to PATH'." }
+Write-OK "Python: $(& $py --version 2>&1)"
+
+Write-Step "Baixando main.py..."
 try {
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-  Invoke-WebRequest -Uri $ExeUrl -OutFile "$AgentDir\\$ExeName" -UseBasicParsing
-  Write-OK "Download concluido."
-} catch {
-  Write-Fail "Falha no download: $_"
-}
+  Invoke-WebRequest -Uri $MainPyUrl -OutFile "$AgentDir\\main.py" -UseBasicParsing
+  Write-OK "main.py baixado."
+} catch { Write-Fail "Falha no download: $_" }
 
-$sizeMB = [math]::Round((Get-Item "$AgentDir\\$ExeName").Length / 1MB, 1)
-Write-OK "Verificado: $sizeMB MB"
+Write-Step "Instalando dependencias Python (pode demorar ~2 min na primeira vez)..."
+& $py -m pip install --quiet --upgrade requests psutil pynput mss Pillow
+Write-OK "Dependencias instaladas."
 
 Write-Step "Criando config.json..."
 $cfg = [ordered]@{
@@ -91,21 +99,24 @@ $cfg = [ordered]@{
   flush_interval_sec          = 20
   batch_size                  = 50
   idle_threshold_sec          = 300
-  verify_tls                  = $false
+  verify_tls                  = $true
   request_timeout_sec         = 10
   enable_screenshots          = $true
   screenshot_interval_sec     = 60
   screenshot_max_width        = 1600
   screenshot_quality          = 55
   screenshot_only_when_active = $true
-  enable_recordings           = $true
-  recording_interval_sec      = 120
-  recording_duration_sec      = 20
-  recording_fps               = 3
-  recording_max_width         = 960
+  enable_recordings           = $false
 }
 $cfg | ConvertTo-Json -Depth 3 | Set-Content "$AgentDir\\config.json" -Encoding UTF8
 Write-OK "config.json criado."
+
+# VBS silencioso
+$pyPath = (& $py -c "import sys; print(sys.executable)" 2>&1).Trim()
+$wpy = $pyPath -replace "python\\.exe\$","pythonw.exe"
+if (-not (Test-Path $wpy)) { $wpy = $pyPath }
+$vbs = "Set w=CreateObject(`"WScript.Shell`")`nw.Environment(`"Process`")(`"PAC_AGENT_CONFIG`")=`"$AgentDir\\config.json`"`nw.Run `"`"$wpy`" `"$AgentDir\\main.py`"`",0,False"
+Set-Content "$AgentDir\\start-agent.vbs" $vbs -Encoding UTF8
 
 Write-Step "Registrando no Task Scheduler..."
 $u = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -113,55 +124,41 @@ $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>PAC CONTROL desktop agent</Description></RegistrationInfo>
-  <Triggers>
-    <LogonTrigger><Enabled>true</Enabled><UserId>$u</UserId><Delay>PT20S</Delay></LogonTrigger>
-  </Triggers>
-  <Principals>
-    <Principal id="Author">
-      <UserId>$u</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel>
-    </Principal>
-  </Principals>
+  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>$u</UserId><Delay>PT20S</Delay></LogonTrigger></Triggers>
+  <Principals><Principal id="Author"><UserId>$u</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Hidden>true</Hidden>
-    <StartWhenAvailable>true</StartWhenAvailable>
+    <Hidden>true</Hidden><StartWhenAvailable>true</StartWhenAvailable>
     <RestartOnFailure><Count>999</Count><Interval>PT1M</Interval></RestartOnFailure>
     <Enabled>true</Enabled>
   </Settings>
   <Actions Context="Author">
-    <Exec>
-      <Command>"$AgentDir\\$ExeName"</Command>
-      <WorkingDirectory>$AgentDir</WorkingDirectory>
-    </Exec>
+    <Exec><Command>wscript.exe</Command><Arguments>"$AgentDir\\start-agent.vbs"</Arguments><WorkingDirectory>$AgentDir</WorkingDirectory></Exec>
   </Actions>
 </Task>
 "@
 $tmp = "$env:TEMP\\pac-task.xml"
 [System.IO.File]::WriteAllText($tmp, $xml, [System.Text.Encoding]::Unicode)
 schtasks /Create /TN $TaskName /XML $tmp /F | Out-Null
-[System.IO.File]::Delete($tmp)
+Remove-Item $tmp -ErrorAction SilentlyContinue
 Write-OK "Task Scheduler configurado."
 
-Write-Step "Iniciando agente..."
+Write-Step "Iniciando agente agora..."
 schtasks /Run /TN $TaskName | Out-Null
 Start-Sleep -Seconds 4
 
-$running = (Get-Process -Name "PACControlAgent" -ErrorAction SilentlyContinue) -ne $null
-
 Write-Host ""
-if ($running) {
-  Write-Host "=======================================" -ForegroundColor Green
-  Write-Host "   INSTALADO E RODANDO COM SUCESSO!    " -ForegroundColor Green
-  Write-Host "=======================================" -ForegroundColor Green
-} else {
-  Write-Host "  Instalado. Iniciara no proximo login." -ForegroundColor Yellow
-}
+Write-Host "=======================================" -ForegroundColor Green
+Write-Host "   INSTALACAO CONCLUIDA!               " -ForegroundColor Green
+Write-Host "=======================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  Pasta : $AgentDir" -ForegroundColor White
-Write-Host "  User  : $UserId" -ForegroundColor White
+Write-Host "  Pasta  : $AgentDir" -ForegroundColor White
+Write-Host "  Agente : Iniciara automaticamente no proximo login" -ForegroundColor White
+Write-Host ""
+Write-Host "Verifique em ~2 minutos se o usuario aparece Online no painel." -ForegroundColor Yellow
 Write-Host ""
 `;
 }
