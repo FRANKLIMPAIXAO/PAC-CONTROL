@@ -141,6 +141,8 @@ export default function ColaboradoresPage() {
   }
 
   const [topMsg, setTopMsg] = useState(null);
+  const [installModal, setInstallModal] = useState(null); // { userId, name, cmd }
+
   useEffect(() => {
     if (topMsg) {
       const t = setTimeout(() => setTopMsg(null), 4000);
@@ -148,12 +150,16 @@ export default function ColaboradoresPage() {
     }
   }, [topMsg]);
 
-  function copyInstallCmd(userId) {
+  function openInstallModal(userId, name) {
     const cmd = `irm ${window.location.origin}/api/install/${userId} | iex`;
+    setInstallModal({ userId, name, cmd });
+  }
+
+  function copyInstallCmd(cmd) {
     navigator.clipboard.writeText(cmd).then(() => {
-      setTopMsg({ type: 'ok', text: 'Comando copiado! Cole no PowerShell da maquina do colaborador.' });
+      setTopMsg({ type: 'ok', text: 'Comando copiado!' });
     }).catch(() => {
-      prompt('Copie o comando:', cmd);
+      setTopMsg({ type: 'ok', text: 'Selecione e copie o comando acima (Ctrl+C).' });
     });
   }
 
@@ -223,8 +229,8 @@ export default function ColaboradoresPage() {
                         Trocar senha
                       </button>
                       <button
-                        onClick={() => copyInstallCmd(u.id)}
-                        title="Copia comando para instalar o agente nesta maquina"
+                        onClick={() => openInstallModal(u.id, u.name)}
+                        title="Mostra o comando para instalar o agente nesta maquina"
                         style={{ width: 'auto', padding: '4px 10px', fontSize: 12, background: '#7c3aed' }}
                       >
                         Instalar Agente
@@ -242,6 +248,57 @@ export default function ColaboradoresPage() {
           </div>
         )}
       </div>
+
+      {installModal && (
+        <div
+          onClick={() => setInstallModal(null)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'white', borderRadius: 10, padding: 28, maxWidth: 600, width: '100%',
+            }}
+          >
+            <h2 style={{ marginTop: 0, fontSize: 18 }}>Instalar Agente — {installModal.name}</h2>
+            <p style={{ color: '#374151', fontSize: 14, marginBottom: 8 }}>
+              No PC de <strong>{installModal.name}</strong>, abra o <strong>PowerShell</strong> e cole o comando abaixo:
+            </p>
+            <div style={{ position: 'relative' }}>
+              <input
+                readOnly
+                value={installModal.cmd}
+                onFocus={e => e.target.select()}
+                style={{
+                  width: '100%', fontFamily: 'monospace', fontSize: 13,
+                  background: '#1e1e2e', color: '#a6e3a1', padding: '12px 14px',
+                  borderRadius: 6, border: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => copyInstallCmd(installModal.cmd)}
+                style={{ width: 'auto', padding: '10px 20px', background: '#7c3aed' }}
+              >
+                Copiar comando
+              </button>
+              <button
+                onClick={() => setInstallModal(null)}
+                style={{ width: 'auto', padding: '10px 20px', background: '#6b7280' }}
+              >
+                Fechar
+              </button>
+            </div>
+            <p style={{ color: '#9ca3af', fontSize: 12, marginTop: 12, marginBottom: 0 }}>
+              Requisito: Python 3.9+ instalado no Windows com "Add to PATH" marcado.
+            </p>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <div
