@@ -115,7 +115,7 @@ Write-OK "config.json criado."
 $pyPath = (& $py -c "import sys; print(sys.executable)" 2>&1).Trim()
 $wpy = $pyPath -replace "python\\.exe\$","pythonw.exe"
 if (-not (Test-Path $wpy)) { $wpy = $pyPath }
-$vbs = "Set w=CreateObject(`"WScript.Shell`")`nw.Environment(`"Process`")(`"PAC_AGENT_CONFIG`")=`"$AgentDir\\config.json`"`nw.Run `"`"$wpy`" `"$AgentDir\\main.py`"`",0,False"
+$vbs = "Set w=CreateObject(\`"WScript.Shell\`")\`nw.Environment(\`"Process\`")(\`"PAC_AGENT_CONFIG\`")=\`"$AgentDir\\config.json\`"\`nw.Run \`"\`"$wpy\`" \`"$AgentDir\\main.py\`"\`",0,False"
 Set-Content "$AgentDir\\start-agent.vbs" $vbs -Encoding UTF8
 
 Write-Step "Registrando no Task Scheduler..."
