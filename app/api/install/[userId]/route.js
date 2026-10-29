@@ -111,12 +111,16 @@ $cfg = [ordered]@{
 $cfg | ConvertTo-Json -Depth 3 | Set-Content "$AgentDir\\config.json" -Encoding UTF8
 Write-OK "config.json criado."
 
-# VBS silencioso
+# Wrapper VBS silencioso (sem janela preta)
 $pyPath = (& $py -c "import sys; print(sys.executable)" 2>&1).Trim()
-$wpy = $pyPath -replace "python\\.exe\$","pythonw.exe"
+$wpy = $pyPath -replace "python\.exe$","pythonw.exe"
 if (-not (Test-Path $wpy)) { $wpy = $pyPath }
-$vbs = "Set w=CreateObject(\`"WScript.Shell\`")\`nw.Environment(\`"Process\`")(\`"PAC_AGENT_CONFIG\`")=\`"$AgentDir\\config.json\`"\`nw.Run \`"\`"$wpy\`" \`"$AgentDir\\main.py\`"\`",0,False"
-Set-Content "$AgentDir\\start-agent.vbs" $vbs -Encoding UTF8
+@"
+Set sh = CreateObject("WScript.Shell")
+sh.CurrentDirectory = "$AgentDir"
+sh.Environment("Process")("PAC_AGENT_CONFIG") = "$AgentDir\config.json"
+sh.Run """$wpy"" ""$AgentDir\main.py""", 0, False
+"@ | Set-Content "$AgentDir\\start-agent.vbs" -Encoding UTF8
 
 Write-Step "Registrando no Task Scheduler..."
 $u = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
