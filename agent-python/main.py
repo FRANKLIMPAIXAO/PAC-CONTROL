@@ -405,6 +405,7 @@ foreach ($w in $wins) {
                 ['powershell', '-NonInteractive', '-WindowStyle', 'Hidden',
                  '-ExecutionPolicy', 'Bypass', '-Command', ps_script],
                 capture_output=True, timeout=3, text=True,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
             )
             url = (result.stdout or '').strip()
             if url and '.' in url:
