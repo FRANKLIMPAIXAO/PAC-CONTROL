@@ -68,7 +68,7 @@ if (-not (Test-Path $AgentDir)) { New-Item -ItemType Directory -Path $AgentDir |
 # Verifica Python
 Write-Step "Verificando Python..."
 $py = $null
-foreach ($c in @("python","py","python3")) {
+foreach ($c in @("py","python","python3")) {
   try {
     $v = & $c --version 2>&1
     if ($v -match "Python 3\\.([89]|1[0-9])") { $py = $c; break }
@@ -86,6 +86,7 @@ try {
 
 Write-Step "Instalando dependencias Python (pode demorar ~2 min na primeira vez)..."
 & $py -m pip install --quiet --upgrade requests psutil pynput mss Pillow
+if ($LASTEXITCODE -ne 0) { Write-Fail "pip falhou (Python usado: $(& $py -c 'import sys; print(sys.executable)')). Instale o Python oficial de python.org." }
 Write-OK "Dependencias instaladas."
 
 Write-Step "Criando config.json..."
